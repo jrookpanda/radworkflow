@@ -1,144 +1,689 @@
-<!-- ... existing code ... -->
+<!DOCTYPE html>
+<html lang="en" class="h-full select-none">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Radiology Time-Motion Study Tracker (CT & X-Ray)</title>
+    
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- React & ReactDOM CDN -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+    
+    <!-- Babel for JSX compilation -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    
+    <!-- FontAwesome Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <!-- Google Fonts: Plus Jakarta Sans & Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    
+    <!-- jsQR Library for lightweight pure-JS QR code scanning from video stream -->
+    <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js"></script>
+
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['"Plus Jakarta Sans"', 'Inter', 'sans-serif'],
+                        mono: ['SFMono-Regular', 'Consolas', 'monospace'],
+                    },
+                    colors: {
+                        brand: {
+                            50: '#f0f7ff',
+                            100: '#e0f2fe',
+                            200: '#bae6fd',
+                            500: '#0284c7',
+                            600: '#0284c7',
+                            700: '#0369a1',
+                            800: '#075985',
+                            900: '#0c4a6e',
+                        }
+                    },
+                    boxShadow: {
+                        'glow': '0 0 25px -5px rgba(14, 165, 233, 0.25)',
+                        'glow-emerald': '0 0 25px -5px rgba(16, 185, 129, 0.3)',
+                        'card': '0 10px 30px -5px rgba(15, 23, 42, 0.05)',
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        * {
+            -webkit-tap-highlight-color: transparent;
+            touch-action: manipulation;
+        }
+        body { 
+            font-family: 'Plus Jakarta Sans', sans-serif; 
+            background-color: #f8fafc;
+            overscroll-behavior-y: none;
+        }
+        
+        .bg-mesh {
+            background-color: #f8fafc;
+            background-image: 
+                radial-gradient(at 10% 10%, rgba(56, 189, 248, 0.08) 0px, transparent 50%),
+                radial-gradient(at 90% 10%, rgba(99, 102, 241, 0.06) 0px, transparent 50%),
+                radial-gradient(at 50% 90%, rgba(14, 165, 233, 0.05) 0px, transparent 50%);
+        }
+
+        .pulse-subtle { 
+            animation: pulse 2.2s cubic-bezier(0.4, 0, 0.6, 1) infinite; 
+        }
+        @keyframes pulse { 
+            0%, 100% { opacity: 1; transform: scale(1); } 
+            50% { opacity: 0.85; transform: scale(0.98); } 
+        }
+
+        .no-scrollbar::-webkit-scrollbar {
+            display: none;
+        }
+        .no-scrollbar {
+            -ms-overflow-style: none;
+            scrollbar-width: none;
+        }
+    </style>
+</head>
+<body class="bg-mesh text-slate-800 antialiased min-h-full pb-20 sm:pb-10 selection:bg-brand-500 selection:text-white">
+    <div id="root"></div>
+
+    <script type="text/babel">
+        // Default central Google Apps Script endpoint fallback
+        const HARDCODED_SHEETS_URL = "https://script.google.com/macros/s/AKfycbyni4IMpxrEB-cLgGhkhbfMmgcnpAt62p6doRAZW3w3lXftEdNG-jurMc9kGFXk2GE44A/exec";
+
+        // Tailored workflow templates strictly for CT & X-Ray
+        const WORKFLOW_TEMPLATES = {
+            'XRAY_NO_CONTRAST': {
+                name: 'Routine X-Ray (No Contrast)',
+                category: 'X-Ray',
+                hasContrast: false,
+                steps: [
+                    { id: 's1', name: 'Patient Intake & Verification', type: 'hands_on', icon: 'fa-user-check' },
+                    { id: 's2', name: 'Positioning & Tube Alignment', type: 'hands_on', icon: 'fa-arrows-to-eye' },
+                    { id: 's3', name: 'Image Exposure / Acquisition', type: 'hands_on', icon: 'fa-radiation' },
+                    { id: 's4', name: 'Patient Offboarding', type: 'hands_on', icon: 'fa-person-walking-arrow-right' },
+                    { id: 's5', name: 'Console Formatting & Post-Proc', type: 'post_patient', icon: 'fa-sliders' },
+                    { id: 's6', name: 'Laser Printing & Film Packaging', type: 'post_patient', icon: 'fa-print' },
+                    { id: 's7', name: 'Final Handover to Patient', type: 'post_patient', icon: 'fa-box-archive' }
+                ]
+            },
+            'XRAY_WITH_CONTRAST': {
+                name: 'Contrast-Enhanced X-Ray (IVU/HSG)',
+                category: 'X-Ray',
+                hasContrast: true,
+                steps: [
+                    { id: 's1', name: 'Patient Intake & Screening', type: 'hands_on', icon: 'fa-clipboard-check' },
+                    { id: 's2', name: 'IV Access & Contrast Prep', type: 'hands_on', icon: 'fa-syringe' },
+                    { id: 's3', name: 'Positioning & Scout Exposure', type: 'hands_on', icon: 'fa-expand' },
+                    { id: 's4', name: 'Contrast Injection & Timed Exposures', type: 'hands_on', icon: 'fa-stopwatch-20' },
+                    { id: 's5', name: 'Line Removal & Offboarding', type: 'hands_on', icon: 'fa-hand-holding-medical' },
+                    { id: 's6', name: 'Console Review & Layout', type: 'post_patient', icon: 'fa-desktop' },
+                    { id: 's7', name: 'Laser Printing & Packaging', type: 'post_patient', icon: 'fa-print' },
+                    { id: 's8', name: 'Final Handover & Instructions', type: 'post_patient', icon: 'fa-file-signature' }
+                ]
+            },
+            'CT_NO_CONTRAST': {
+                name: 'CT Scan (No Contrast)',
+                category: 'CT Scan',
+                hasContrast: false,
+                steps: [
+                    { id: 's1', name: 'Patient Intake & Safety Check', type: 'hands_on', icon: 'fa-shield-halved' },
+                    { id: 's2', name: 'Couch Positioning & Laser Alignment', type: 'hands_on', icon: 'fa-crosshairs' },
+                    { id: 's3', name: 'Topogram & CT Scan Execution', type: 'hands_on', icon: 'fa-ring' },
+                    { id: 's4', name: 'Patient Offboarding & Room Reset', type: 'hands_on', icon: 'fa-pump-soap' },
+                    { id: 's5', name: '3D Multi-Planar Recon (MPR)', type: 'post_patient', icon: 'fa-cubes' },
+                    { id: 's6', name: 'Multi-Frame Printing & Packaging', type: 'post_patient', icon: 'fa-images' },
+                    { id: 's7', name: 'Final Handover to Patient', type: 'post_patient', icon: 'fa-circle-check' }
+                ]
+            },
+            'CT_WITH_CONTRAST': {
+                name: 'CT Scan (With IV Contrast)',
+                category: 'CT Scan',
+                hasContrast: true,
+                steps: [
+                    { id: 's1', name: 'Patient Intake & Renal Screening', type: 'hands_on', icon: 'fa-vial' },
+                    { id: 's2', name: 'IV Cannulation & Injector Setup', type: 'hands_on', icon: 'fa-syringe' },
+                    { id: 's3', name: 'Couch Positioning & Scout Setup', type: 'hands_on', icon: 'fa-crosshairs' },
+                    { id: 's4', name: 'Contrast Injection & Dynamic Scan', type: 'hands_on', icon: 'fa-heart-pulse' },
+                    { id: 's5', name: 'Line Removal & Reaction Watch', type: 'hands_on', icon: 'fa-user-nurse' },
+                    { id: 's6', name: 'Advanced 3D Recon (MPR/MIP/VRT)', type: 'post_patient', icon: 'fa-layer-group' },
+                    { id: 's7', name: 'Multi-Sheet Printing & Packaging', type: 'post_patient', icon: 'fa-print' },
+                    { id: 's8', name: 'Final Handover & Hydration Guidance', type: 'post_patient', icon: 'fa-bottle-water' }
+                ]
+            }
+        };
+
+        const XRAY_REGIONS = [
+            { id: 'chest', label: 'Chest (1 view)', name: 'Chest (1 view)', views: 1, icon: 'fa-lungs' },
+            { id: 'bones', label: 'Limbs & Spine', name: 'Bones / Limbs / Spines (2 views)', views: 2, icon: 'fa-bone' },
+            { id: 'fluoro', label: 'Fluoroscopy', name: 'Fluoroscopy (6 views)', views: 6, icon: 'fa-film' },
+            { id: 'other', label: 'Other Special', name: 'Other', views: 2, icon: 'fa-ellipsis-h' }
+        ];
+
+        const CT_REGIONS = [
+            { id: 'brain', label: 'Brain / Head', sublabel: 'Cerebral', name: 'Brain', icon: 'fa-brain' },
+            { id: 'tap', label: 'TAP', sublabel: 'Thorax / Abdo / Pelvis', name: 'TAP', icon: 'fa-child-body' },
+            { id: 'ctap', label: 'CTAP', sublabel: 'Cerebral + TAP', name: 'CTAP (Cerebral + TAP)', icon: 'fa-head-side-medical' },
+            { id: 'gt4', label: 'Multi-Region (>4)', sublabel: '>4 Regions', name: '>4 regions', icon: 'fa-layer-group' },
+            { id: 'other', label: 'Other Custom Scan', sublabel: 'Custom', name: 'Other', icon: 'fa-sliders' }
+        ];
+
+        const QUICK_BOTTLENECKS = ['IV Line Delay', 'Patient Late', 'Transport Delay', 'Sanitation Delay', 'Consent Delay', 'Console Queue'];
+
+        function triggerHaptic(duration = 35) {
+            if (typeof window !== 'undefined' && 'navigator' in window && window.navigator.vibrate) {
+                try { window.navigator.vibrate(duration); } catch(e) {}
+            }
+        }
+
+        function getAutoDetectedShift(dateObj = new Date()) {
+            const totalMin = dateObj.getHours() * 60 + dateObj.getMinutes();
+            if (totalMin >= 450 && totalMin < 720) {
+                return 'Morning (7:30 AM - 12:00 PM)';
+            } else if (totalMin >= 720 && totalMin < 1140) {
+                return 'Afternoon (12:00 PM - 7:00 PM)';
+            } else {
+                return 'Overnight (7:00 PM - 7:30 AM)';
+            }
+        }
+
+        function getOrCreateDeviceId() {
+            try {
+                let id = localStorage.getItem('radiology_station_id');
+                if (!id) {
+                    const rand = Math.floor(1000 + Math.random() * 9000);
+                    id = `STATION-RAD-${rand}`;
+                    localStorage.setItem('radiology_station_id', id);
+                }
+                return id;
+            } catch(e) {
+                return 'STATION-RAD-01';
+            }
+        }
+
+        function formatDuration(totalSeconds) {
+            if (!totalSeconds || isNaN(totalSeconds) || totalSeconds < 0) return '00:00';
+            const hrs = Math.floor(totalSeconds / 3600);
+            const mins = Math.floor((totalSeconds % 3600) / 60);
+            const secs = Math.floor(totalSeconds % 60);
+            if (hrs > 0) {
+                return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            }
+            return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function formatDateTimeLocal(isoStr) {
+            if (!isoStr) return '';
+            try {
+                const d = new Date(isoStr);
+                if (isNaN(d.getTime())) return isoStr;
+                return d.toLocaleString('en-US', {
+                    year: 'numeric', month: '2-digit', day: '2-digit',
+                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+                });
+            } catch(e) {
+                return isoStr;
+            }
+        }
+
+        function formatTimeOnly(isoStr) {
+            if (!isoStr) return '';
+            try {
+                const d = new Date(isoStr);
+                if (isNaN(d.getTime())) return isoStr;
+                return d.toLocaleTimeString('en-US', {
+                    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true
+                });
+            } catch(e) {
+                return isoStr;
+            }
+        }
+
+        function flattenRecordForSheet(obs) {
+            const handsOnSec = obs.summaryMetrics?.handsOnDurationSec || 0;
+            const postSec = obs.summaryMetrics?.postProcessingDurationSec || 0;
+            const totalSec = obs.summaryMetrics?.totalDurationSec || (handsOnSec + postSec);
+
+            const microTimings = (obs.stepLogs || []).map((step, idx) => {
+                const sStart = step.startTime ? formatTimeOnly(step.startTime) : '';
+                const sEnd = step.endTime ? formatTimeOnly(step.endTime) : '';
+                const timeSpan = (sStart && sEnd) ? ` (${sStart}-${sEnd})` : '';
+                return `Step ${idx + 1} [${step.stepName}]: ${step.durationSeconds || 0}s${timeSpan}`;
+            }).join(' | ');
+
+            const timestampLogged = obs.timestampLogged ? formatDateTimeLocal(obs.timestampLogged) : formatDateTimeLocal(new Date().toISOString());
+            const overallStartFormatted = obs.overallStartTime ? formatDateTimeLocal(obs.overallStartTime) : formatDateTimeLocal(new Date().toISOString());
+            const overallEndFormatted = obs.overallEndTime ? formatDateTimeLocal(obs.overallEndTime) : formatDateTimeLocal(new Date().toISOString());
+
+            const stationVal = obs.stationId || obs.observerName || 'STATION-RAD-01';
+            const observerVal = obs.observerName || obs.stationId || 'STATION-RAD-01';
+            const patientVal = obs.patientId || ('ACC-' + Math.floor(100000 + Math.random() * 900000));
+            const shiftVal = obs.shift || getAutoDetectedShift();
+            const modalityVal = obs.modality || 'CT';
+            const contrastVal = obs.hasContrast ? 'Yes' : 'No';
+            const patientTypeVal = obs.patientType || 'OPD';
+            const bodyPartVal = obs.bodyPart || (modalityVal === 'CT' ? 'Brain' : 'Chest (1 view)');
+            const templateVal = obs.templateName || (WORKFLOW_TEMPLATES[obs.templateKey]?.name || (modalityVal === 'CT' ? 'CT Scan' : 'X-Ray'));
+            const filmSizeVal = obs.resources?.filmSize || '14x17';
+            const filmsPrintedVal = obs.resources?.filmsPrinted ?? 0;
+            const techCountVal = obs.resources?.techCount ?? 1;
+            const nurseCountVal = obs.resources?.nurseCount ?? 0;
+            const bottleneckVal = obs.resources?.bottleneckNotes || 'None';
+
+            return {
+                ...obs,
+                timestampLogged,
+                microStepTimings: microTimings,
+                
+                "Timestamp Logged": timestampLogged,
+                "Observation ID": obs.id || '',
+                "Station ID": stationVal,
+                "Observer Name": observerVal,
+                "Patient ID": patientVal,
+                "Shift": shiftVal,
+                "Modality": modalityVal,
+                "IV Contrast": contrastVal,
+                "Patient Type": patientTypeVal,
+                "Body Region / Exam": bodyPartVal,
+                "Workflow Template": templateVal,
+                "Overall Start Time": overallStartFormatted,
+                "Overall End Time": overallEndFormatted,
+                "Total Sec": totalSec,
+                "Hands-On Sec": handsOnSec,
+                "Post-Proc Sec": postSec,
+                "Total (mm:ss)": formatDuration(totalSec),
+                "Hands-On (mm:ss)": formatDuration(handsOnSec),
+                "Post-Proc (mm:ss)": formatDuration(postSec),
+                "Films Printed": filmsPrintedVal,
+                "Film Size": filmSizeVal,
+                "Tech Count": techCountVal,
+                "Nurse Count": nurseCountVal,
+                "Bottlenecks / Notes": bottleneckVal,
+                "Micro Step Timings": microTimings
+            };
+        }
+
+        function QrScannerModal({ isOpen, onClose, onScanSuccess }) {
+            const videoRef = React.useRef(null);
+            const canvasRef = React.useRef(null);
+            const [scanError, setScanError] = React.useState('');
+            const [isScanning, setIsScanning] = React.useState(false);
+
+            React.useEffect(() => {
+                let stream = null;
+                let animId = null;
+
+                if (isOpen) {
+                    setScanError('');
+                    setIsScanning(true);
+                    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
+                        .then((s) => {
+                            stream = s;
+                            if (videoRef.current) {
+                                videoRef.current.srcObject = stream;
+                                videoRef.current.setAttribute('playsinline', true);
+                                videoRef.current.play();
+                                animId = requestAnimationFrame(tick);
+                            }
+                        })
+                        .catch((err) => {
+                            console.error('Camera access error:', err);
+                            setScanError('Camera permission denied or unavailable. Please enter code manually.');
+                            setIsScanning(false);
+                        });
+                }
+
+                function tick() {
+                    if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
+                        const video = videoRef.current;
+                        const canvas = canvasRef.current;
+                        if (canvas) {
+                            canvas.width = video.videoWidth;
+                            canvas.height = video.videoHeight;
+                            const ctx = canvas.getContext('2d');
+                            ctx.drawImage(video, 0, canvas.width, canvas.height);
+                            try {
+                                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                                const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                                    inversionAttempts: 'dontInvert',
+                                });
+                                if (code && code.data) {
+                                    triggerHaptic(60);
+                                    onScanSuccess(code.data);
+                                    stopStream();
+                                    return;
+                                }
+                            } catch (e) {
+                                console.error(e);
+                            }
+                        }
+                    }
+                    animId = requestAnimationFrame(tick);
+                }
+
+                function stopStream() {
+                    if (stream) {
+                        stream.getTracks().forEach(track => track.stop());
+                    }
+                    if (animId) {
+                        cancelAnimationFrame(animId);
+                    }
+                }
+
+                return () => {
+                    stopStream();
+                };
+            }, [isOpen]);
+
+            if (!isOpen) return null;
+
+            return (
+                <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
+                    <div className="bg-white rounded-3xl p-5 w-full max-w-sm shadow-2xl space-y-4 text-center border border-slate-200">
+                        <div className="flex items-center justify-between border-b pb-3">
+                            <h3 className="font-extrabold text-sm text-slate-900 flex items-center space-x-2">
+                                <i className="fa-solid fa-qrcode text-brand-600"></i>
+                               <span>Scan Barcode / QR Code</span>
+                            </h3>
+                            <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
+                                <i className="fa-solid fa-xmark text-lg"></i>
+                            </button>
+                        </div>
+
+                        <div className="relative rounded-2xl overflow-hidden bg-slate-900 aspect-square flex items-center justify-center border-2 border-brand-500/50 shadow-inner">
+                            <video ref={videoRef} className="w-full h-full object-cover"></video>
+                            <canvas ref={canvasRef} className="hidden"></canvas>
+                            
+                            {/* Scanner Targeting overlay box */}
+                            <div className="absolute inset-12 border-2 border-dashed border-sky-400/80 rounded-2xl pointer-events-none flex items-center justify-center">
+                                <div className="w-full h-0.5 bg-rose-500/80 animate-pulse"></div>
+                            </div>
+
+                            {scanError && (
+                                <div className="absolute inset-0 bg-slate-950/90 p-6 flex flex-col items-center justify-center text-center">
+                                    <i className="fa-solid fa-triangle-exclamation text-amber-400 text-2xl mb-2"></i>
+                                    <p className="text-xs text-white font-medium">{scanError}</p>
+                                </div>
+                            )}
+                        </div>
+
+                        <p className="text-[11px] text-slate-500">
+                            Position patient wristband QR or accession barcode within the frame.
+                        </p>
+
+                        <button
+                            onClick={onClose}
+                            className="w-full py-3 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition"
+                        >
+                            Cancel Scanner
+                        </button>
+                    </div>
+                </div>
+            );
+        }
+
         function App() {
-            const [view, setView] = React.useState('setup');
-            
-            // Station / Machine ID state (Persisted in localStorage)
-            const [stationId, setStationId] = React.useState(() => getOrCreateDeviceId());
+            const [view, setView] = React.useState('setup'); // 'setup', 'tracking', 'resources', 'summary', 'history'
+            const [stationId, setStationId] = React.useState(getOrCreateDeviceId());
             const [isStationLocked, setIsStationLocked] = React.useState(true);
-
-            // Google Sheets Integration State
-            const [sheetUrl, setSheetUrl] = React.useState(() => {
-                try { return localStorage.getItem('radiology_sheet_url') || ''; } catch(e) { return ''; }
+            const [sheetsUrl, setSheetsUrl] = React.useState(() => {
+                try { return localStorage.getItem('radiology_sheets_url') || HARDCODED_SHEETS_URL; }
+                catch(e) { return HARDCODED_SHEETS_URL; }
             });
-            const [isSheetModalOpen, setIsSheetModalOpen] = React.useState(false);
+            const [showSettingsModal, setShowSettingsModal] = React.useState(false);
+            const [showScannerModal, setShowScannerModal] = React.useState(false);
             const [isSyncing, setIsSyncing] = React.useState(false);
-            const [testStatus, setTestStatus] = React.useState(null); // 'testing', 'success', 'error'
+            const [lastSyncTime, setLastSyncTime] = React.useState(null);
 
-            const showToast = (msg) => {
-                setToastMessage(msg);
-                setTimeout(() => setToastMessage(null), 3500);
+            const [formData, setFormData] = React.useState({
+                observerName: stationId,
+                patientId: '',
+                modality: 'XRay',
+                hasContrast: 'no',
+                bodyPart: 'Chest (1 view)',
+                customBodyPart: '',
+                xrayViews: 1,
+                patientType: 'OPD',
+                shift: getAutoDetectedShift(),
+                isShiftOverridden: false
+            });
+
+            const [trackingSession, setTrackingSession] = React.useState(null);
+            const [history, setHistory] = React.useState(() => {
+                try {
+                    const saved = localStorage.getItem('radiology_history_v2');
+                    return saved ? JSON.parse(saved) : [];
+                } catch(e) { return []; }
+            });
+
+            const [now, setNow] = React.useState(Date.now());
+            const [toast, setToast] = React.useState({ show: false, message: '' });
+            const [historySearch, setHistorySearch] = React.useState('');
+            const [historyFilterModality, setHistoryFilterModality] = React.useState('ALL');
+
+            React.useEffect(() => {
+                try {
+                    localStorage.setItem('radiology_history_v2', JSON.stringify(history));
+                } catch(e) {}
+            }, [history]);
+
+            React.useEffect(() => {
+                let interval = null;
+                if (view === 'tracking') {
+                    interval = setInterval(() => setNow(Date.now()), 1000);
+                }
+                return () => { if (interval) clearInterval(interval); };
+            }, [view]);
+
+            const showToast = (message) => {
+                setToast({ show: true, message });
+                setTimeout(() => setToast({ show: false, message: '' }), 3000);
             };
 
-            const sendRecordToGoogleSheet = async (record, isBatch = false) => {
-                if (!sheetUrl.trim()) return false;
+            const getTemplateKey = (modality, hasContrast) => {
+                if (modality === 'CT') {
+                    return hasContrast === 'yes' ? 'CT_WITH_CONTRAST' : 'CT_NO_CONTRAST';
+                } else {
+                    return hasContrast === 'yes' ? 'XRAY_WITH_CONTRAST' : 'XRAY_NO_CONTRAST';
+                }
+            };
+
+            const sendToGoogleSheets = async (recordsToSync) => {
+                if (!sheetsUrl || !recordsToSync || recordsToSync.length === 0) return false;
+                setIsSyncing(true);
                 try {
-                    await fetch(sheetUrl.trim(), {
+                    const flattened = recordsToSync.map(r => flattenRecordForSheet(r));
+                    await fetch(sheetsUrl, {
                         method: 'POST',
                         mode: 'no-cors',
-                        headers: { 'Content-Type': 'text/plain' },
-                        body: JSON.stringify(record)
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(flattened)
                     });
+                    setLastSyncTime(new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }));
+                    setIsSyncing(false);
                     return true;
-                } catch(err) {
-                    console.error("Sheets push error:", err);
+                } catch (err) {
+                    console.error('Sync failed:', err);
+                    setIsSyncing(false);
                     return false;
                 }
             };
 
-            const handleTestConnection = async () => {
-                if (!sheetUrl.trim()) {
-                    showToast("Please enter a Google Apps Script Web App URL first.");
-                    return;
-                }
-                setTestStatus('testing');
-                triggerHaptic(30);
+            const handleStartObservation = (e) => {
+                if (e) e.preventDefault();
+                triggerHaptic(50);
+
+                const effectiveObserver = formData.observerName.trim() || stationId.trim() || getOrCreateDeviceId();
+
                 try {
-                    // Send a ping test payload
-                    const dummyTest = {
-                        id: "TEST-PING-" + Date.now(),
-                        stationId: stationId || "TEST-ROOM",
-                        observerName: "Connection Test",
-                        patientId: "TEST-PATIENT",
-                        shift: "Test",
-                        modality: "System Test",
-                        hasContrast: false,
-                        patientType: "N/A",
-                        bodyPart: "Diagnostic Check",
-                        templateName: "Ping Verification",
-                        overallStartTime: new Date().toISOString(),
-                        overallEndTime: new Date().toISOString(),
-                        summaryMetrics: { totalDurationSec: 0, handsOnDurationSec: 0, postProcessingDurationSec: 0 },
-                        resources: { filmsPrinted: 0, filmSize: "N/A", techCount: 1, nurseCount: 0, bottleneckNotes: "System test ping" }
+                    localStorage.setItem('radiology_station_id', effectiveObserver);
+                    setStationId(effectiveObserver);
+                } catch(e) {}
+
+                const templateKey = getTemplateKey(formData.modality, formData.hasContrast);
+                const template = WORKFLOW_TEMPLATES[templateKey];
+                const startTimeIso = new Date().toISOString();
+
+                const initialLogs = template.steps.map((step, idx) => ({
+                    stepId: step.id,
+                    stepName: step.name,
+                    stepType: step.type,
+                    icon: step.icon,
+                    status: idx === 0 ? 'in_progress' : 'pending',
+                    startTime: idx === 0 ? startTimeIso : null,
+                    endTime: null,
+                    durationSeconds: 0,
+                    note: ''
+                }));
+
+                const finalBodyPart = formData.bodyPart === 'Other' && formData.customBodyPart.trim()
+                    ? `Other: ${formData.customBodyPart.trim()}`
+                    : formData.bodyPart;
+
+                const initialFilmCount = formData.modality === 'XRay' 
+                    ? (parseInt(formData.xrayViews) || 1)
+                    : 2;
+
+                const session = {
+                    id: 'OBS-' + Date.now().toString().slice(-6),
+                    observerName: effectiveObserver,
+                    stationId: effectiveObserver,
+                    patientId: formData.patientId.trim() || ('ACC-' + Math.floor(100000 + Math.random() * 900000)),
+                    modality: formData.modality,
+                    hasContrast: formData.hasContrast === 'yes',
+                    patientType: formData.patientType || 'OPD',
+                    bodyPart: finalBodyPart,
+                    xrayViews: formData.modality === 'XRay' ? formData.xrayViews : null,
+                    shift: formData.shift || getAutoDetectedShift(),
+                    templateKey: templateKey,
+                    templateName: template.name,
+                    overallStartTime: startTimeIso,
+                    overallEndTime: null,
+                    currentStepIndex: 0,
+                    stepLogs: initialLogs,
+                    syncedToSheet: false,
+                    resources: {
+                        filmsPrinted: initialFilmCount,
+                        filmSize: '14x17',
+                        techCount: 1,
+                        nurseCount: formData.hasContrast === 'yes' ? 1 : 0,
+                        bottleneckNotes: ''
+                    }
+                };
+
+                setTrackingSession(session);
+                setView('tracking');
+                showToast(`Observation launched on ${effectiveObserver}!`);
+            };
+
+            const handleTapStepComplete = () => {
+                triggerHaptic(40);
+                if (!trackingSession) return;
+
+                const logs = [...trackingSession.stepLogs];
+                const currentIndex = trackingSession.currentStepIndex;
+                const currentStep = logs[currentIndex];
+                const nowIso = new Date().toISOString();
+
+                const stepStart = new Date(currentStep.startTime || nowIso).getTime();
+                const stepDurationSec = Math.max(1, Math.floor((Date.now() - stepStart) / 1000));
+
+                logs[currentIndex] = {
+                    ...currentStep,
+                    status: 'completed',
+                    endTime: nowIso,
+                    durationSeconds: stepDurationSec
+                };
+
+                if (currentIndex + 1 < logs.length) {
+                    logs[currentIndex + 1] = {
+                        ...logs[currentIndex + 1],
+                        status: 'in_progress',
+                        startTime: nowIso
                     };
-                    await sendRecordToGoogleSheet(dummyTest);
-                    setTestStatus('success');
-                    showToast("Test ping sent to Google Sheet!");
-                } catch(e) {
-                    setTestStatus('error');
-                    showToast("Failed to connect to Google Sheet URL.");
-                }
-            };
 
-            const handleSaveGoogleSheetUrl = (url) => {
-                const trimmed = url.trim();
-                setSheetUrl(trimmed);
-                setTestStatus(null);
-                try {
-                    localStorage.setItem('radiology_sheet_url', trimmed);
-                } catch(e) {}
-            };
-
-            const handleSyncAllToSheets = async () => {
-                if (!sheetUrl) {
-                    setIsSheetModalOpen(true);
-                    return;
-                }
-                if (history.length === 0) {
-                    showToast("No records available to sync.");
-                    return;
-                }
-                setIsSyncing(true);
-                triggerHaptic(40);
-
-                // Send history as batch payload
-                const success = await sendRecordToGoogleSheet(history, true);
-                setIsSyncing(false);
-                if (success) {
-                    showToast(`Synced ${history.length} observation(s) to Google Sheet!`);
+                    setTrackingSession({
+                        ...trackingSession,
+                        currentStepIndex: currentIndex + 1,
+                        stepLogs: logs
+                    });
                 } else {
-                    showToast("Error sending sync payload to Google Sheet.");
+                    setTrackingSession({
+                        ...trackingSession,
+                        overallEndTime: nowIso,
+                        stepLogs: logs
+                    });
+                    setView('resources');
+                    showToast('All steps completed! Log study consumables.');
                 }
             };
 
-            const handleSaveGoogleSheetUrl = (url) => {
-                const trimmed = url.trim();
-                setSheetUrl(trimmed);
-                try {
-                    localStorage.setItem('radiology_sheet_url', trimmed);
-                } catch(e) {}
-                showToast(trimmed ? "Google Sheet Endpoint Linked!" : "Sheet URL cleared.");
+            const handleUndoLastStep = () => {
+                triggerHaptic(30);
+                if (!trackingSession || trackingSession.currentStepIndex === 0) return;
+
+                const logs = [...trackingSession.stepLogs];
+                const currentIndex = trackingSession.currentStepIndex;
+
+                logs[currentIndex] = {
+                    ...logs[currentIndex],
+                    status: 'pending',
+                    startTime: null,
+                    endTime: null,
+                    durationSeconds: 0
+                };
+
+                const prevIndex = currentIndex - 1;
+                logs[prevIndex] = {
+                    ...logs[prevIndex],
+                    status: 'in_progress',
+                    endTime: null
+                };
+
+                setTrackingSession({
+                    ...trackingSession,
+                    currentStepIndex: prevIndex,
+                    stepLogs: logs
+                });
             };
 
-            const handleSyncAllToSheets = async () => {
-                if (!sheetUrl) {
-                    setIsSheetModalOpen(true);
-                    return;
-                }
-                if (history.length === 0) {
-                    showToast("No records to sync.");
-                    return;
-                }
-                setIsSyncing(true);
-                triggerHaptic(40);
+            const handleToggleBottleneck = (tag) => {
+                triggerHaptic(20);
+                if (!trackingSession) return;
 
-                let successCount = 0;
-                for (const item of history) {
-                    const ok = await sendRecordToGoogleSheet(item, true);
-                    if (ok) successCount++;
+                const currentNotes = trackingSession.resources.bottleneckNotes || '';
+                let updatedNotes = '';
+
+                if (currentNotes.includes(tag)) {
+                    updatedNotes = currentNotes.replace(tag, '').replace(/,\s*,/g, ',').replace(/^,\s*|\s*,\s*$/g, '');
+                } else {
+                    updatedNotes = currentNotes ? `${currentNotes}, ${tag}` : tag;
                 }
 
-                setIsSyncing(false);
-                showToast(`Synced ${history.length} observation(s) to Google Sheets!`);
+                setTrackingSession({
+                    ...trackingSession,
+                    resources: {
+                        ...trackingSession.resources,
+                        bottleneckNotes: updatedNotes
+                    }
+                });
             };
 
-            const getTemplateKey = (mod, contrastVal) => {
-<!-- ... existing code ... -->
-            const handleSaveResources = (e) => {
+            const handleSaveResources = async (e) => {
                 if (e) e.preventDefault();
                 triggerHaptic(50);
                 
                 let handsOnSec = 0;
                 let postSec = 0;
+
+                const endTimeIso = trackingSession.overallEndTime || new Date().toISOString();
 
                 trackingSession.stepLogs.forEach(log => {
                     if (log.stepType === 'hands_on') {
@@ -150,8 +695,11 @@
 
                 const totalSec = handsOnSec + postSec;
 
-                const finalRecord = {
+                const baseRecord = {
                     ...trackingSession,
+                    overallEndTime: endTimeIso,
+                    timestampLogged: new Date().toISOString(),
+                    syncedToSheet: false,
                     summaryMetrics: {
                         handsOnDurationSec: handsOnSec,
                         postProcessingDurationSec: postSec,
@@ -159,91 +707,855 @@
                     }
                 };
 
+                const finalRecord = flattenRecordForSheet(baseRecord);
+
+                let isSynced = false;
+                if (sheetsUrl) {
+                    isSynced = await sendToGoogleSheets([finalRecord]);
+                }
+
+                finalRecord.syncedToSheet = isSynced;
+
                 setHistory([finalRecord, ...history]);
                 setTrackingSession(finalRecord);
                 setView('summary');
-
-                // Auto-sync to Google Sheet if Webhook URL is configured
-                if (sheetUrl.trim()) {
-                    sendRecordToGoogleSheet(finalRecord);
-                    showToast("Observation saved & auto-synced to Google Sheet!");
-                } else {
-                    showToast("Observation saved locally!");
-                }
+                showToast(isSynced ? "Saved & Live Synced to Google Sheets!" : "Saved locally (Offline mode).");
             };
 
             const handleStartNewPatient = () => {
-<!-- ... existing code ... -->
-                        {/* Fast View Pills */}
-                        <div className="flex items-center space-x-1.5 bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200/60">
-                            <button 
-                                onClick={() => { triggerHaptic(20); setIsSheetModalOpen(true); }}
-                                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center space-x-1.5 ${
-                                    sheetUrl 
-                                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/80' 
-                                        : 'bg-amber-50 text-amber-800 border border-amber-200/80 hover:bg-amber-100'
+                triggerHaptic(30);
+                setFormData({
+                    ...formData,
+                    patientId: '',
+                    shift: getAutoDetectedShift()
+                });
+                setTrackingSession(null);
+                setView('setup');
+            };
+
+            const handleManualSyncAll = async () => {
+                triggerHaptic(40);
+                const unsynced = history.filter(item => !item.syncedToSheet);
+                if (unsynced.length === 0) {
+                    showToast("All observations are already synced!");
+                    return;
+                }
+
+                const success = await sendToGoogleSheets(unsynced);
+                if (success) {
+                    const updated = history.map(item => ({ ...item, syncedToSheet: true }));
+                    setHistory(updated);
+                    showToast(`Successfully synced ${unsynced.length} records!`);
+                } else {
+                    showToast("Sync failed. Check connection or Apps Script URL.");
+                }
+            };
+
+            const handleExportCSV = () => {
+                triggerHaptic(30);
+                if (history.length === 0) {
+                    showToast("No history data to export.");
+                    return;
+                }
+
+                const headers = Object.keys(history[0]).filter(k => typeof history[0][k] !== 'object');
+                const csvRows = [
+                    headers.join(','),
+                    ...history.map(row => headers.map(h => JSON.stringify(row[h] || '')).join(','))
+                ];
+
+                const blob = new Blob([csvRows.join('\n')], { type: 'text/csv' });
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.setAttribute('href', url);
+                a.setAttribute('download', `Radiology_Time_Study_${new Date().toISOString().slice(0,10)}.csv`);
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                showToast("CSV file exported successfully!");
+            };
+
+            const filteredHistory = history.filter(item => {
+                const matchesSearch = !historySearch || 
+                    (item.patientId || '').toLowerCase().includes(historySearch.toLowerCase()) ||
+                    (item.stationId || '').toLowerCase().includes(historySearch.toLowerCase());
+                const matchesModality = historyFilterModality === 'ALL' || item.modality === historyFilterModality;
+                return matchesSearch && matchesModality;
+            });
+
+            return (
+                <div className="max-w-md sm:max-w-xl mx-auto px-4 py-3 min-h-screen flex flex-col justify-between">
+                    
+                    {/* Header Bar */}
+                    <header className="bg-white/80 backdrop-blur-md border border-slate-200/80 rounded-2xl p-3 shadow-card mb-3 flex items-center justify-between">
+                        <div className="flex items-center space-x-2.5">
+                            <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-brand-600 to-sky-500 text-white flex items-center justify-center font-black text-lg shadow-glow">
+                                <i className="fa-solid fa-microscope"></i>
+                            </div>
+                            <div>
+                                <h1 className="text-xs font-black text-slate-900 tracking-tight flex items-center gap-1.5">
+                                    <span>RAD TIME & MOTION</span>
+                                    <span className="bg-sky-100 text-sky-800 text-[9px] px-1.5 py-0.2 rounded font-extrabold uppercase">CT & X-Ray</span>
+                                </h1>
+                                <p className="text-[10px] text-slate-500 font-semibold">Workflow Efficiency Tracker</p>
+                            </div>
+                        </div>
+
+                        <div className="flex items-center space-x-1.5">
+                            <button
+                                onClick={() => { triggerHaptic(20); setShowSettingsModal(true); }}
+                                className={`p-2 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${
+                                    isSyncing ? 'bg-amber-100 text-amber-800' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                                 }`}
-                                title="Configure Google Sheets Integration"
+                                title="Google Sheets Config"
                             >
-                                <i className={`fa-solid fa-file-excel ${sheetUrl ? 'text-emerald-600' : 'text-amber-600'}`}></i>
-                                <span className="hidden md:inline">{sheetUrl ? 'Sheets Active' : 'Link Sheets'}</span>
+                                <i className={`fa-solid ${isSyncing ? 'fa-spinner fa-spin text-amber-600' : 'fa-cloud text-brand-600'}`}></i>
+                                <span className="hidden sm:inline text-[11px] font-extrabold">
+                                    {lastSyncTime ? `Synced ${lastSyncTime}` : 'Sheets'}
+                                </span>
                             </button>
 
-                            <button 
-                                onClick={() => { triggerHaptic(20); setView(trackingSession ? 'tracking' : 'setup'); }}
-                                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center space-x-2 ${
-                                    view === 'setup' || view === 'tracking' 
-                                        ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80' 
-                                        : 'text-slate-600 hover:text-slate-900'
+                            <button
+                                onClick={() => { triggerHaptic(20); setView(view === 'history' ? 'setup' : 'history'); }}
+                                className={`px-3 py-2 rounded-xl text-xs font-bold transition flex items-center space-x-1 ${
+                                    view === 'history' ? 'bg-brand-600 text-white shadow-sm' : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                                 }`}
                             >
-                                <i className="fa-solid fa-play text-brand-600 text-xs"></i>
-                                <span className="hidden sm:inline">Tracker</span>
-                            </button>
-                            <button 
-                                onClick={() => { triggerHaptic(20); setView('history'); }}
-                                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center space-x-2 ${
-                                    view === 'history' 
-                                        ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80' 
-                                        : 'text-slate-600 hover:text-slate-900'
-                                }`}
-                            >
-                                <i className="fa-solid fa-database text-slate-500 text-xs"></i>
-                                <span>Logs</span>
-                                {history.length > 0 && (
-                                    <span className="bg-brand-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black">
-                                        {history.length}
-                                    </span>
-                                )}
+                                <i className="fa-solid fa-clock-rotate-left"></i>
+                                <span>Logs ({history.length})</span>
                             </button>
                         </div>
                     </header>
 
                     {/* Toast Notification */}
-<!-- ... existing code ... -->
-                    {}
-                    {view === 'history' && (
-                        <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 p-5 sm:p-7 shadow-card mb-auto">
-                            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-4 mb-5 gap-3">
-                                <div>
-                                    <h2 className="text-lg font-black text-slate-900">Recorded Observations</h2>
-                                    <p className="text-xs text-slate-500">{history.length} study sessions stored locally</p>
+                    {toast.show && (
+                        <div className="fixed top-4 left-1/2 -translate-x-1/2 z-50 bg-slate-900 text-white text-xs font-bold px-4 py-2.5 rounded-2xl shadow-2xl flex items-center space-x-2 border border-slate-700 animate-bounce">
+                            <i className="fa-solid fa-circle-info text-sky-400"></i>
+                            <span>{toast.message}</span>
+                        </div>
+                    )}
+
+                    {/* QR Code / Barcode Scanner Modal */}
+                    <QrScannerModal
+                        isOpen={showScannerModal}
+                        onClose={() => setShowScannerModal(false)}
+                        onScanSuccess={(scannedText) => {
+                            setFormData(prev => ({ ...prev, patientId: scannedText.trim() }));
+                            setShowScannerModal(false);
+                            showToast(`Scanned Patient ID: ${scannedText.trim()}`);
+                        }}
+                    />
+
+                    {/* Google Sheets Modal */}
+                    {showSettingsModal && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4">
+                            <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl space-y-4 border border-slate-100">
+                                <div className="flex items-center justify-between border-b pb-3">
+                                    <h3 className="font-extrabold text-sm text-slate-900 flex items-center space-x-2">
+                                        <i className="fa-solid fa-table text-emerald-600"></i>
+                                        <span>Google Sheets Integration</span>
+                                    </h3>
+                                    <button onClick={() => setShowSettingsModal(false)} className="text-slate-400 hover:text-slate-600 p-1">
+                                        <i className="fa-solid fa-xmark text-lg"></i>
+                                    </button>
                                 </div>
 
-                                <div className="flex items-center space-x-2">
-                                    <button
-                                        onClick={handleSyncAllToSheets}
-                                        disabled={isSyncing || history.length === 0}
-                                        className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md flex items-center space-x-2 transition active:scale-95"
-                                    >
-                                        <i className={`fa-solid ${isSyncing ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'}`}></i>
-                                        <span>{isSyncing ? 'Syncing...' : 'Sync to Sheet'}</span>
-                                    </button>
+                                <p className="text-xs text-slate-500">
+                                    Paste your Google Apps Script Web App URL below to sync observation data in real-time.
+                                </p>
 
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1">Apps Script Endpoint URL</label>
+                                    <input
+                                        type="url"
+                                        value={sheetsUrl}
+                                        onChange={(e) => setSheetsUrl(e.target.value)}
+                                        placeholder="https://script.google.com/macros/s/.../exec"
+                                        className="w-full text-xs font-mono p-3 rounded-xl border border-slate-200 focus:ring-2 focus:ring-brand-500 outline-none"
+                                    />
+                                </div>
+
+                                <div className="flex space-x-2 pt-2">
+                                    <button
+                                        onClick={() => {
+                                            try { localStorage.setItem('radiology_sheets_url', sheetsUrl); } catch(e){}
+                                            setShowSettingsModal(false);
+                                            showToast("Google Sheets Web App URL Saved!");
+                                        }}
+                                        className="flex-1 py-3 bg-brand-600 text-white font-bold text-xs rounded-xl shadow-md"
+                                    >
+                                        Save Configuration
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Setup View */}
+                    {view === 'setup' && (
+                        <div className="bg-white/90 backdrop-blur-md rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-card space-y-5 my-auto">
+                            <form onSubmit={handleStartObservation} className="space-y-4">
+                                
+                                {/* Machine / Station ID Input */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/60">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                                <i className="fa-solid fa-desktop text-brand-600"></i>
+                                                <span>Machine / Station ID</span>
+                                            </label>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    triggerHaptic(20);
+                                                    if (!isStationLocked) {
+                                                        const val = formData.observerName.trim() || stationId;
+                                                        setStationId(val);
+                                                        setFormData({...formData, observerName: val});
+                                                        try { localStorage.setItem('radiology_station_id', val); } catch(e){}
+                                                    }
+                                                    setIsStationLocked(!isStationLocked);
+                                                }}
+                                                className="text-[10px] font-black px-2 py-0.5 rounded-md transition flex items-center gap-1 bg-slate-200 text-slate-700 hover:bg-slate-300"
+                                            >
+                                                <i className={`fa-solid ${isStationLocked ? 'fa-lock text-emerald-600' : 'fa-lock-open text-amber-600'}`}></i>
+                                                <span>{isStationLocked ? 'Locked' : 'Edit Station'}</span>
+                                            </button>
+                                        </div>
+
+                                        {isStationLocked ? (
+                                            <div className="flex items-center justify-between px-3.5 py-2.5 rounded-xl border border-emerald-200 bg-emerald-50/60 shadow-inner">
+                                                <div className="flex items-center space-x-2">
+                                                    <i className="fa-solid fa-shield-halved text-emerald-600 text-sm"></i>
+                                                    <span className="font-mono font-extrabold text-sm text-emerald-950">{stationId}</span>
+                                                </div>
+                                                <span className="text-[10px] font-bold text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-full">
+                                                    Auto-Saved
+                                                </span>
+                                            </div>
+                                        ) : (
+                                            <input 
+                                                type="text" 
+                                                required
+                                                value={formData.observerName}
+                                                onChange={(e) => {
+                                                    const val = e.target.value;
+                                                    setFormData({...formData, observerName: val});
+                                                    setStationId(val);
+                                                }}
+                                                placeholder="e.g. STATION-CT-01"
+                                                className="w-full px-3.5 py-2.5 text-sm font-semibold rounded-xl border border-amber-300 bg-white focus:outline-none focus:ring-2 focus:ring-amber-500 transition shadow-sm"
+                                            />
+                                        )}
+                                    </div>
+
+                                    <div className="bg-slate-50/70 p-3.5 rounded-2xl border border-slate-200/60">
+                                        <div className="flex items-center justify-between mb-1.5">
+                                            <label className="text-xs font-bold text-slate-700 flex items-center gap-1.5">
+                                                <i className="fa-solid fa-id-badge text-indigo-600"></i>
+                                                <span>Accession / Patient Code</span>
+                                            </label>
+                                            <button
+                                                type="button"
+                                                onClick={() => { triggerHaptic(30); setShowScannerModal(true); }}
+                                                className="px-2.5 py-1 bg-brand-600 hover:bg-brand-500 text-white rounded-lg text-[10px] font-black flex items-center space-x-1 shadow-sm transition active:scale-95"
+                                            >
+                                                <i className="fa-solid fa-camera"></i>
+                                                <span>Scan QR</span>
+                                            </button>
+                                        </div>
+                                        <input 
+                                            type="text" 
+                                            value={formData.patientId}
+                                            onChange={(e) => setFormData({...formData, patientId: e.target.value})}
+                                            placeholder="e.g. ACC-882391 (Auto if empty)"
+                                            className="w-full px-3.5 py-2.5 text-sm font-mono font-bold rounded-xl border border-slate-200 bg-white focus:outline-none focus:ring-2 focus:ring-brand-500/50 transition shadow-sm"
+                                        />
+                                    </div>
+                                </div>
+
+                                {/* Modality Selection: CT vs X-Ray */}
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-black text-slate-800 tracking-wide uppercase">
+                                        1. Modality Selection
+                                    </label>
+                                    
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                triggerHaptic(35);
+                                                setFormData({ ...formData, modality: 'CT', bodyPart: 'Brain' });
+                                            }}
+                                            className={`p-4 rounded-3xl border-2 transition-all duration-200 active:scale-95 text-left relative overflow-hidden flex flex-col justify-between ${
+                                                formData.modality === 'CT'
+                                                    ? 'border-indigo-500 bg-gradient-to-br from-indigo-50 via-sky-50/50 to-white text-indigo-950 shadow-md ring-2 ring-indigo-500/20'
+                                                    : 'border-slate-200/80 bg-white text-slate-600 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg transition-all ${
+                                                    formData.modality === 'CT' ? 'bg-indigo-600 text-white shadow-glow' : 'bg-slate-100 text-slate-600'
+                                                }`}>
+                                                    <i className="fa-solid fa-ring"></i>
+                                                </div>
+                                                {formData.modality === 'CT' && (
+                                                    <span className="w-5 h-5 rounded-full bg-indigo-600 text-white flex items-center justify-center text-xs">
+                                                        <i className="fa-solid fa-check"></i>
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <div className="font-extrabold text-sm">CT Scan</div>
+                                                <div className="text-[10px] text-slate-500 font-medium">Computed Tomography</div>
+                                            </div>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                triggerHaptic(35);
+                                                setFormData({ ...formData, modality: 'XRay', bodyPart: 'Chest (1 view)', xrayViews: 1 });
+                                            }}
+                                            className={`p-4 rounded-3xl border-2 transition-all duration-200 active:scale-95 text-left relative overflow-hidden flex flex-col justify-between ${
+                                                formData.modality === 'XRay'
+                                                    ? 'border-brand-500 bg-gradient-to-br from-brand-50 via-sky-50/50 to-white text-brand-950 shadow-md ring-2 ring-brand-500/20'
+                                                    : 'border-slate-200/80 bg-white text-slate-600 hover:border-slate-300'
+                                            }`}
+                                        >
+                                            <div className="flex items-center justify-between mb-2">
+                                                <div className={`w-10 h-10 rounded-2xl flex items-center justify-center text-lg transition-all ${
+                                                    formData.modality === 'XRay' ? 'bg-brand-600 text-white shadow-glow' : 'bg-slate-100 text-slate-600'
+                                                }`}>
+                                                    <i className="fa-solid fa-x-ray"></i>
+                                                </div>
+                                                {formData.modality === 'XRay' && (
+                                                    <span className="w-5 h-5 rounded-full bg-brand-600 text-white flex items-center justify-center text-xs">
+                                                        <i className="fa-solid fa-check"></i>
+                                                    </span>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <div className="font-extrabold text-sm">X-Ray Scan</div>
+                                                <div className="text-[10px] text-slate-500 font-medium">General Radiography</div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Contrast Administration Toggle */}
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-black text-slate-800 tracking-wide uppercase">
+                                        2. Contrast Administration
+                                    </label>
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => { triggerHaptic(20); setFormData({...formData, hasContrast: 'no'}); }}
+                                            className={`py-3 px-4 rounded-2xl font-bold text-xs border transition flex items-center justify-center space-x-2 ${
+                                                formData.hasContrast === 'no'
+                                                    ? 'bg-slate-800 text-white border-slate-800 shadow-sm'
+                                                    : 'bg-white text-slate-600 border-slate-200'
+                                            }`}
+                                        >
+                                            <i className="fa-solid fa-ban"></i>
+                                            <span>No Contrast (Plain)</span>
+                                        </button>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => { triggerHaptic(20); setFormData({...formData, hasContrast: 'yes'}); }}
+                                            className={`py-3 px-4 rounded-2xl font-bold text-xs border transition flex items-center justify-center space-x-2 ${
+                                                formData.hasContrast === 'yes'
+                                                    ? 'bg-purple-600 text-white border-purple-600 shadow-sm'
+                                                    : 'bg-white text-slate-600 border-slate-200'
+                                            }`}
+                                        >
+                                            <i className="fa-solid fa-syringe"></i>
+                                            <span>IV Contrast Enhanced</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Anatomy / Region Selection */}
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-black text-slate-800 tracking-wide uppercase">
+                                        3. Body Anatomy Region
+                                    </label>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                                        {(formData.modality === 'CT' ? CT_REGIONS : XRAY_REGIONS).map((reg) => (
+                                            <button
+                                                key={reg.id}
+                                                type="button"
+                                                onClick={() => {
+                                                    triggerHaptic(20);
+                                                    setFormData({
+                                                        ...formData,
+                                                        bodyPart: reg.name,
+                                                        xrayViews: reg.views || formData.xrayViews
+                                                    });
+                                                }}
+                                                className={`p-3 rounded-2xl text-xs font-bold text-left border transition flex flex-col justify-between ${
+                                                    formData.bodyPart === reg.name
+                                                        ? 'bg-sky-50 border-sky-500 text-sky-950 ring-2 ring-sky-500/20'
+                                                        : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                                                }`}
+                                            >
+                                                <i className={`fa-solid ${reg.icon} text-sm mb-2 text-sky-600`}></i>
+                                                <span>{reg.label}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {formData.bodyPart === 'Other' && (
+                                        <div className="mt-2">
+                                            <input
+                                                type="text"
+                                                value={formData.customBodyPart}
+                                                onChange={(e) => setFormData({...formData, customBodyPart: e.target.value})}
+                                                placeholder="Enter custom region name..."
+                                                className="w-full px-3.5 py-2.5 text-xs font-semibold rounded-xl border border-sky-300 bg-sky-50/50 focus:outline-none focus:ring-2 focus:ring-sky-500"
+                                            />
+                                        </div>
+                                    )}
+                                </div>
+
+                                {/* Patient Type Pills */}
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-black text-slate-800 tracking-wide uppercase">
+                                        4. Patient Category
+                                    </label>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {['OPD', 'IPD', 'ER', 'VIP'].map((type) => (
+                                            <button
+                                                key={type}
+                                                type="button"
+                                                onClick={() => { triggerHaptic(20); setFormData({...formData, patientType: type}); }}
+                                                className={`py-2.5 rounded-xl text-xs font-extrabold border transition ${
+                                                    formData.patientType === type
+                                                        ? type === 'ER' ? 'bg-rose-600 text-white border-rose-600' : 'bg-slate-900 text-white border-slate-900'
+                                                        : 'bg-white text-slate-600 border-slate-200'
+                                                }`}
+                                            >
+                                                {type === 'ER' ? '🚨 ER' : type}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Shift Selection */}
+                                <div className="space-y-2">
+                                    <label className="block text-xs font-black text-slate-800 tracking-wide uppercase">
+                                        5. Shift Schedule
+                                    </label>
+                                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                        {[
+                                            'Morning (7:30 AM - 12:00 PM)',
+                                            'Afternoon (12:00 PM - 7:00 PM)',
+                                            'Overnight (7:00 PM - 7:30 AM)'
+                                        ].map((s) => (
+                                            <button
+                                                key={s}
+                                                type="button"
+                                                onClick={() => { triggerHaptic(20); setFormData({...formData, shift: s, isShiftOverridden: true}); }}
+                                                className={`p-2.5 rounded-xl text-xs font-bold border transition text-left ${
+                                                    formData.shift === s
+                                                        ? 'bg-indigo-50 border-indigo-500 text-indigo-950 ring-2 ring-indigo-500/20'
+                                                        : 'bg-white border-slate-200 text-slate-700 hover:border-slate-300'
+                                                }`}
+                                            >
+                                                <i className="fa-regular fa-clock text-indigo-600 mr-1.5"></i>
+                                                <span>{s.split(' ')[0]}</span>
+                                                <span className="block text-[10px] text-slate-400 font-normal">{s.split(' ').slice(1).join(' ')}</span>
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                {/* Launch Button */}
+                                <button
+                                    type="submit"
+                                    className="w-full py-4 bg-gradient-to-r from-brand-600 to-sky-600 text-white font-black text-base rounded-2xl shadow-lg shadow-sky-500/25 active:scale-98 transition flex items-center justify-center space-x-2"
+                                >
+                                    <i className="fa-solid fa-play"></i>
+                                    <span>START STUDY OBSERVATION</span>
+                                </button>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Live Tracking View */}
+                    {view === 'tracking' && trackingSession && (
+                        <div className="space-y-4 my-auto">
+                            {/* Active Step Stopwatch Display */}
+                            <div className="bg-slate-900 text-white rounded-3xl p-6 shadow-2xl border border-slate-800 relative overflow-hidden">
+                                <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-3 mb-4">
+                                    <div className="flex items-center space-x-2">
+                                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-ping"></span>
+                                        <span className="font-mono font-bold text-slate-300">{trackingSession.patientId}</span>
+                                    </div>
+                                    <div className="flex gap-1.5">
+                                        <span className="px-2.5 py-0.5 rounded-full bg-sky-950 text-sky-300 border border-sky-800 text-[10px] font-bold">
+                                            {trackingSession.modality}
+                                        </span>
+                                        <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-bold ${
+                                            trackingSession.hasContrast ? 'bg-purple-950 text-purple-300 border border-purple-800' : 'bg-slate-800 text-slate-300'
+                                        }`}>
+                                            {trackingSession.hasContrast ? 'IV Contrast' : 'Plain'}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="text-center my-2">
+                                    <div className="text-xs uppercase tracking-widest text-sky-400 font-extrabold mb-1">
+                                        Step {trackingSession.currentStepIndex + 1} of {trackingSession.stepLogs.length}
+                                    </div>
+                                    <h2 className="text-xl sm:text-2xl font-black text-white">
+                                        {trackingSession.stepLogs[trackingSession.currentStepIndex]?.stepName}
+                                    </h2>
+                                </div>
+
+                                {/* Active Timer Counter */}
+                                <div className="my-5 text-center bg-slate-950/80 rounded-2xl p-4 border border-slate-800 backdrop-blur-md">
+                                    <div className="text-[10px] uppercase font-semibold text-slate-400 mb-1">Active Step Stopwatch</div>
+                                    <div className="text-5xl font-mono font-extrabold text-sky-400 tracking-wider">
+                                        {formatDuration(
+                                            Math.max(0, Math.floor((now - new Date(trackingSession.stepLogs[trackingSession.currentStepIndex]?.startTime).getTime()) / 1000))
+                                        )}
+                                    </div>
+                                </div>
+
+                                {/* Quick Bottleneck Tagging Chips */}
+                                <div className="space-y-2 pt-2 border-t border-slate-800">
+                                    <div className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Tap Bottlenecks:</div>
+                                    <div className="flex flex-wrap gap-1.5">
+                                        {QUICK_BOTTLENECKS.map(tag => {
+                                            const isSelected = (trackingSession.resources?.bottleneckNotes || '').includes(tag);
+                                            return (
+                                                <button
+                                                    key={tag}
+                                                    type="button"
+                                                    onClick={() => handleToggleBottleneck(tag)}
+                                                    className={`px-3 py-1.5 text-xs rounded-xl font-bold transition active:scale-95 ${
+                                                        isSelected 
+                                                            ? 'bg-amber-500 text-slate-950 font-black shadow-md' 
+                                                            : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+                                                    }`}
+                                                >
+                                                    {isSelected ? '✓ ' : '+ '}{tag}
+                                                </button>
+                                            );
+                                        })}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* Step Progression List */}
+                            <div className="bg-white/90 backdrop-blur-md rounded-3xl p-4 border border-slate-200/80 shadow-card space-y-2">
+                                <div className="text-xs font-black text-slate-500 uppercase tracking-wider mb-3">
+                                    Workflow Progression
+                                </div>
+
+                                <div className="space-y-2">
+                                    {trackingSession.stepLogs.map((log, idx) => {
+                                        const isActive = idx === trackingSession.currentStepIndex;
+                                        const isDone = log.status === 'completed';
+                                        
+                                        let durationDisp = '00:00';
+                                        if (isDone) {
+                                            durationDisp = formatDuration(log.durationSeconds);
+                                        } else if (isActive) {
+                                            durationDisp = formatDuration(Math.max(0, Math.floor((now - new Date(log.startTime).getTime()) / 1000)));
+                                        }
+
+                                        return (
+                                            <div
+                                                key={log.stepId}
+                                                className={`p-3 rounded-2xl border transition flex items-center justify-between ${
+                                                    isActive
+                                                        ? 'bg-sky-50 border-sky-500 ring-2 ring-sky-500/20'
+                                                        : isDone
+                                                        ? 'bg-slate-50 border-slate-200 opacity-90'
+                                                        : 'bg-slate-50/40 border-dashed border-slate-200 opacity-50'
+                                                }`}
+                                            >
+                                                <div className="flex items-center space-x-3">
+                                                    <div className={`w-8 h-8 rounded-xl flex items-center justify-center font-bold text-xs ${
+                                                        isDone ? 'bg-emerald-500 text-white' :
+                                                        isActive ? 'bg-sky-600 text-white pulse-subtle' :
+                                                        'bg-slate-200 text-slate-500'
+                                                    }`}>
+                                                        {isDone ? <i className="fa-solid fa-check"></i> : <i className={`fa-solid ${log.icon}`}></i>}
+                                                    </div>
+                                                    <div>
+                                                        <div className="font-extrabold text-xs text-slate-800">
+                                                            {log.stepName}
+                                                        </div>
+                                                        <div className="text-[10px] font-semibold text-slate-400">
+                                                            {log.stepType === 'hands_on' ? 'Hands-On Patient Care' : 'Post-Patient Console Work'}
+                                                        </div>
+                                                    </div>
+                                                </div>
+
+                                                <div className="font-mono font-extrabold text-xs text-slate-800">
+                                                    {durationDisp}
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+
+                            {/* Sticky Action Controls */}
+                            <div className="flex items-center gap-2">
+                                <button
+                                    onClick={handleUndoLastStep}
+                                    disabled={trackingSession.currentStepIndex === 0}
+                                    className="px-4 py-4 bg-white border border-slate-200 text-slate-700 font-bold rounded-2xl disabled:opacity-40 active:scale-95 transition text-xs flex items-center space-x-1"
+                                >
+                                    <i className="fa-solid fa-rotate-left"></i>
+                                    <span>Undo</span>
+                                </button>
+
+                                <button
+                                    onClick={handleTapStepComplete}
+                                    className="flex-1 py-4 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 text-white font-black text-sm rounded-2xl shadow-lg shadow-emerald-600/30 active:scale-98 transition flex items-center justify-center space-x-2"
+                                >
+                                    <span>
+                                        {trackingSession.currentStepIndex === trackingSession.stepLogs.length - 1 
+                                            ? 'FINISH OBSERVATION & LOG RESOURCES' 
+                                            : `COMPLETE STEP ${trackingSession.currentStepIndex + 1}`}
+                                    </span>
+                                    <i className="fa-solid fa-arrow-right"></i>
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Resource Usage Form View */}
+                    {view === 'resources' && trackingSession && (
+                        <div className="bg-white/90 backdrop-blur-md rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-card my-auto space-y-4">
+                            <div className="border-b border-slate-100 pb-3">
+                                <h2 className="text-base font-black text-slate-900">Study Consumables & Staffing</h2>
+                                <p className="text-xs text-slate-500">Tap buttons to quickly adjust counts</p>
+                            </div>
+
+                            <form onSubmit={handleSaveResources} className="space-y-4">
+                                
+                                {/* Films Printed Touch Stepper */}
+                                <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200/60">
+                                    <label className="block text-xs font-bold text-slate-700 mb-2">Films Printed</label>
+                                    <div className="flex items-center justify-between gap-3">
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                triggerHaptic(25);
+                                                const current = trackingSession.resources.filmsPrinted || 0;
+                                                setTrackingSession({
+                                                    ...trackingSession,
+                                                    resources: { ...trackingSession.resources, filmsPrinted: Math.max(0, current - 1) }
+                                                });
+                                            }}
+                                            className="w-14 h-14 bg-white border-2 border-slate-200 hover:border-brand-500 rounded-2xl text-xl font-black text-slate-700 shadow-sm active:scale-90 transition flex items-center justify-center"
+                                        >
+                                            <i className="fa-solid fa-minus"></i>
+                                        </button>
+
+                                        <div className="flex-1 text-center bg-white py-3 rounded-2xl border border-slate-200 shadow-inner">
+                                            <span className="text-2xl font-mono font-black text-brand-600">
+                                                {trackingSession.resources.filmsPrinted}
+                                            </span>
+                                            <span className="block text-[10px] uppercase font-bold text-slate-400">Sheets</span>
+                                        </div>
+
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                triggerHaptic(25);
+                                                const current = trackingSession.resources.filmsPrinted || 0;
+                                                setTrackingSession({
+                                                    ...trackingSession,
+                                                    resources: { ...trackingSession.resources, filmsPrinted: current + 1 }
+                                                });
+                                            }}
+                                            className="w-14 h-14 bg-white border-2 border-slate-200 hover:border-brand-500 rounded-2xl text-xl font-black text-slate-700 shadow-sm active:scale-90 transition flex items-center justify-center"
+                                        >
+                                            <i className="fa-solid fa-plus"></i>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {/* Film Size selector */}
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1.5">Film Size Format</label>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        {['14x17', '10x12', '8x10', 'Digital-Only'].map((sz) => (
+                                            <button
+                                                key={sz}
+                                                type="button"
+                                                onClick={() => { triggerHaptic(20); setTrackingSession({...trackingSession, resources: {...trackingSession.resources, filmSize: sz}}); }}
+                                                className={`py-3 px-3 rounded-xl text-xs font-bold border transition ${
+                                                    trackingSession.resources.filmSize === sz
+                                                        ? 'bg-brand-600 text-white border-brand-600 shadow-sm'
+                                                        : 'bg-slate-50 text-slate-700 border-slate-200 hover:bg-slate-100'
+                                                }`}
+                                            >
+                                                {sz}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-3">
+                                    {/* Tech Count Stepper */}
+                                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/60">
+                                        <label className="block text-xs font-bold text-slate-700 mb-2">Technologists</label>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    triggerHaptic(20);
+                                                    const cur = trackingSession.resources.techCount || 1;
+                                                    setTrackingSession({...trackingSession, resources: {...trackingSession.resources, techCount: Math.max(1, cur - 1)}});
+                                                }}
+                                                className="w-10 h-10 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 shadow-xs active:scale-90 transition flex items-center justify-center"
+                                            >
+                                                <i className="fa-solid fa-minus"></i>
+                                            </button>
+                                            <span className="text-lg font-mono font-black text-slate-900">{trackingSession.resources.techCount}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    triggerHaptic(20);
+                                                    const cur = trackingSession.resources.techCount || 1;
+                                                    setTrackingSession({...trackingSession, resources: {...trackingSession.resources, techCount: cur + 1}});
+                                                }}
+                                                className="w-10 h-10 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 shadow-xs active:scale-90 transition flex items-center justify-center"
+                                            >
+                                                <i className="fa-solid fa-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+
+                                    {/* Nurse Count Stepper */}
+                                    <div className="bg-slate-50 p-3 rounded-2xl border border-slate-200/60">
+                                        <label className="block text-xs font-bold text-slate-700 mb-2">Nurses / Staff</label>
+                                        <div className="flex items-center justify-between gap-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    triggerHaptic(20);
+                                                    const cur = trackingSession.resources.nurseCount || 0;
+                                                    setTrackingSession({...trackingSession, resources: {...trackingSession.resources, nurseCount: Math.max(0, cur - 1)}});
+                                                }}
+                                                className="w-10 h-10 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 shadow-xs active:scale-90 transition flex items-center justify-center"
+                                            >
+                                                <i className="fa-solid fa-minus"></i>
+                                            </button>
+                                            <span className="text-lg font-mono font-black text-slate-900">{trackingSession.resources.nurseCount}</span>
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    triggerHaptic(20);
+                                                    const cur = trackingSession.resources.nurseCount || 0;
+                                                    setTrackingSession({...trackingSession, resources: {...trackingSession.resources, nurseCount: cur + 1}});
+                                                }}
+                                                className="w-10 h-10 bg-white border border-slate-200 rounded-xl text-sm font-bold text-slate-700 shadow-xs active:scale-90 transition flex items-center justify-center"
+                                            >
+                                                <i className="fa-solid fa-plus"></i>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div>
+                                    <label className="block text-xs font-bold text-slate-700 mb-1">Notes / Delay Observations</label>
+                                    <textarea
+                                        rows="2"
+                                        value={trackingSession.resources.bottleneckNotes}
+                                        onChange={(e) => setTrackingSession({
+                                            ...trackingSession,
+                                            resources: { ...trackingSession.resources, bottleneckNotes: e.target.value }
+                                        })}
+                                        placeholder="Note any patient delays, contrast reactions, or scanner recalibrations..."
+                                        className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-xs bg-slate-50 focus:bg-white transition"
+                                    ></textarea>
+                                </div>
+
+                                <button
+                                    type="submit"
+                                    className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-black text-sm rounded-2xl shadow-lg active:scale-98 transition flex items-center justify-center space-x-2"
+                                >
+                                    <i className="fa-solid fa-cloud-arrow-up"></i>
+                                    <span>SAVE OBSERVATION & SYNC TO SHEETS</span>
+                                </button>
+                            </form>
+                        </div>
+                    )}
+
+                    {/* Summary View */}
+                    {view === 'summary' && trackingSession && (
+                        <div className="bg-white/90 backdrop-blur-md rounded-3xl p-6 border border-slate-200/80 shadow-card my-auto space-y-5 text-center">
+                            <div className="w-16 h-16 rounded-full bg-emerald-100 text-emerald-600 flex items-center justify-center text-3xl mx-auto shadow-inner">
+                                <i className="fa-solid fa-circle-check"></i>
+                            </div>
+
+                            <div>
+                                <h2 className="text-xl font-black text-slate-900">Study Completed & Logged!</h2>
+                                <p className="text-xs text-slate-500 font-mono mt-1">ID: {trackingSession.id} | Accession: {trackingSession.patientId}</p>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2 bg-slate-50 p-4 rounded-2xl border border-slate-200/80">
+                                <div>
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase">Hands-On Time</div>
+                                    <div className="text-base font-mono font-extrabold text-sky-600">
+                                        {formatDuration(trackingSession.summaryMetrics?.handsOnDurationSec)}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase">Console Time</div>
+                                    <div className="text-base font-mono font-extrabold text-purple-600">
+                                        {formatDuration(trackingSession.summaryMetrics?.postProcessingDurationSec)}
+                                    </div>
+                                </div>
+                                <div>
+                                    <div className="text-[10px] font-bold text-slate-400 uppercase">Total Study</div>
+                                    <div className="text-base font-mono font-extrabold text-slate-900">
+                                        {formatDuration(trackingSession.summaryMetrics?.totalDurationSec)}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <button
+                                onClick={handleStartNewPatient}
+                                className="w-full py-4 bg-brand-600 hover:bg-brand-500 text-white font-black text-sm rounded-2xl shadow-lg active:scale-98 transition flex items-center justify-center space-x-2"
+                            >
+                                <i className="fa-solid fa-plus"></i>
+                                <span>START NEXT PATIENT OBSERVATION</span>
+                            </button>
+                        </div>
+                    )}
+
+                    {/* History View */}
+                    {view === 'history' && (
+                        <div className="bg-white/90 backdrop-blur-md rounded-3xl p-5 sm:p-6 border border-slate-200/80 shadow-card my-auto space-y-4">
+                            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                                <div>
+                                    <h2 className="text-base font-black text-slate-900">Observation Logs ({history.length})</h2>
+                                    <p className="text-xs text-slate-500">Stored locally & syncable to Google Sheets</p>
+                                </div>
+
+                                <div className="flex gap-1.5">
+                                    <button
+                                        onClick={handleManualSyncAll}
+                                        className="px-3 py-2 bg-emerald-600 text-white font-bold text-xs rounded-xl shadow-xs active:scale-95 transition flex items-center space-x-1"
+                                    >
+                                        <i className="fa-solid fa-cloud-arrow-up"></i>
+                                        <span>Sync All</span>
+                                    </button>
                                     <button
                                         onClick={handleExportCSV}
-                                        disabled={history.length === 0}
-                                        className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md flex items-center space-x-2 transition active:scale-95"
+                                        className="px-3 py-2 bg-slate-100 text-slate-700 font-bold text-xs rounded-xl active:scale-95 transition flex items-center space-x-1"
                                     >
                                         <i className="fa-solid fa-file-csv"></i>
                                         <span>Export CSV</span>
@@ -251,137 +1563,75 @@
                                 </div>
                             </div>
 
-                            {history.length === 0 ? (
-<!-- ... existing code ... -->
-                    {/* Note Drawer Overlay */}
-                    {editingNoteStepIndex !== null && (
-                        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
-                            <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200">
-                                <h3 className="text-sm font-black text-slate-900 mb-2">
-                                    Attach Delay / Workflow Note (Step {editingNoteStepIndex + 1})
-                                </h3>
-                                <textarea
-                                    rows="3"
-                                    value={stepNoteText}
-                                    onChange={(e) => setStepNoteText(e.target.value)}
-                                    placeholder="e.g. Patient positioning adjustment, IV re-cannulation required..."
-                                    className="w-full px-3.5 py-3 text-xs rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-4 shadow-sm"
-                                ></textarea>
-                                <div className="flex items-center space-x-2">
-                                    <button
-                                        onClick={() => setEditingNoteStepIndex(null)}
-                                        className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        onClick={handleSaveStepNote}
-                                        className="flex-1 py-3 bg-brand-600 text-white font-bold text-xs rounded-xl shadow-md transition"
-                                    >
-                                        Save Note
-                                    </button>
-                                </div>
+                            {/* Search & Modality Filters */}
+                            <div className="grid grid-cols-2 gap-2">
+                                <input
+                                    type="text"
+                                    placeholder="Search accession / station..."
+                                    value={historySearch}
+                                    onChange={(e) => setHistorySearch(e.target.value)}
+                                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-medium"
+                                />
+                                <select
+                                    value={historyFilterModality}
+                                    onChange={(e) => setHistoryFilterModality(e.target.value)}
+                                    className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl text-xs font-bold"
+                                >
+                                    <option value="ALL">All Modalities</option>
+                                    <option value="CT">CT Scan Only</option>
+                                    <option value="XRay">X-Ray Only</option>
+                                </select>
+                            </div>
+
+                            {/* History Record Cards */}
+                            <div className="space-y-2.5 max-h-96 overflow-y-auto no-scrollbar pr-1">
+                                {filteredHistory.length === 0 ? (
+                                    <div className="p-8 text-center text-slate-400 text-xs italic">
+                                        No observation logs found matching query.
+                                    </div>
+                                ) : (
+                                    filteredHistory.map(item => (
+                                        <div key={item.id} className="p-3.5 bg-slate-50/80 rounded-2xl border border-slate-200/80 space-y-2">
+                                            <div className="flex items-center justify-between text-xs">
+                                                <div className="flex items-center space-x-2">
+                                                    <span className="font-mono font-extrabold text-slate-900">{item.patientId}</span>
+                                                    <span className="px-2 py-0.5 rounded-md bg-sky-100 text-sky-800 text-[10px] font-extrabold">
+                                                        {item.modality}
+                                                    </span>
+                                                </div>
+                                                <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                                    item.syncedToSheet ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'
+                                                }`}>
+                                                    {item.syncedToSheet ? '✓ Synced' : 'Offline Pending'}
+                                                </span>
+                                            </div>
+
+                                            <div className="grid grid-cols-3 gap-2 text-[11px] text-slate-600">
+                                                <div>
+                                                    <span className="text-slate-400 block">Total Duration</span>
+                                                    <span className="font-mono font-bold text-slate-900">{formatDuration(item.summaryMetrics?.totalDurationSec)}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-slate-400 block">Anatomy</span>
+                                                    <span className="font-semibold text-slate-800 truncate block">{item.bodyPart}</span>
+                                                </div>
+                                                <div>
+                                                    <span className="text-slate-400 block">Station</span>
+                                                    <span className="font-mono font-bold text-slate-800">{item.stationId}</span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ))
+                                )}
                             </div>
                         </div>
                     )}
-
-                    {/* Google Sheets Setup Modal */}
-                    {isSheetModalOpen && (
-                        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4">
-                            <div className="bg-white w-full max-w-xl rounded-3xl p-5 sm:p-7 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-                                <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
-                                    <div className="flex items-center space-x-2.5">
-                                        <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-lg">
-                                            <i className="fa-solid fa-file-excel"></i>
-                                        </div>
-                                        <div>
-                                            <h3 className="text-base font-black text-slate-900">Google Sheets Live Sync Endpoint</h3>
-                                            <p className="text-xs text-slate-500 font-medium">Free zero-backend logging for research data collection</p>
-                                        </div>
-                                    </div>
-                                    <button
-                                        onClick={() => setIsSheetModalOpen(false)}
-                                        className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-xs"
-                                    >
-                                        <i className="fa-solid fa-xmark"></i>
-                                    </button>
-                                </div>
-
-                                <div className="space-y-4">
-                                    {/* Webhook Endpoint Input */}
-                                    <div>
-                                        <label className="block text-xs font-bold text-slate-800 mb-1.5">
-                                            Google Apps Script Web App Execution URL
-                                        </label>
-                                        <div className="flex gap-2">
-                                            <input
-                                                type="url"
-                                                value={sheetUrl}
-                                                onChange={(e) => handleSaveGoogleSheetUrl(e.target.value)}
-                                                placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
-                                                className="flex-1 px-3.5 py-3 text-xs font-mono rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={handleTestConnection}
-                                                disabled={!sheetUrl.trim() || testStatus === 'testing'}
-                                                className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center space-x-1.5 disabled:opacity-50"
-                                            >
-                                                <i className={`fa-solid ${testStatus === 'testing' ? 'fa-spinner fa-spin' : 'fa-vial'}`}></i>
-                                                <span>Test Ping</span>
-                                            </button>
-                                        </div>
-
-                                        {testStatus === 'success' && (
-                                            <p className="text-[11px] text-emerald-700 font-bold mt-1.5 flex items-center gap-1">
-                                                <i className="fa-solid fa-circle-check"></i> Connection active! Test row inserted into sheet.
-                                            </p>
-                                        )}
-                                        {testStatus === 'error' && (
-                                            <p className="text-[11px] text-red-600 font-bold mt-1.5 flex items-center gap-1">
-                                                <i className="fa-solid fa-triangle-exclamation"></i> Could not reach endpoint. Verify Apps Script deployment.
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* Quick Instructions */}
-                                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-700 space-y-2">
-                                        <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
-                                            <i className="fa-solid fa-rocket text-brand-600"></i>
-                                            <span>3-Step Quick Deployment Guide:</span>
-                                        </div>
-                                        <ol className="list-decimal list-inside space-y-1 text-slate-600 text-[11px] leading-relaxed">
-                                            <li>Open your Google Sheet &gt; Click <strong className="text-slate-900">Extensions &gt; Apps Script</strong>.</li>
-                                            <li>Paste the <strong className="text-slate-900">Code.gs</strong> snippet, click <strong className="text-slate-900">Deploy &gt; New deployment</strong>.</li>
-                                            <li>Set type to <strong className="text-slate-900">Web app</strong>, access to <strong className="text-emerald-700 font-bold">"Anyone"</strong>, click <strong className="text-slate-900">Deploy</strong> &amp; copy the URL!</li>
-                                        </ol>
-                                    </div>
-
-                                    <div className="pt-2 flex justify-end">
-                                        <button
-                                            onClick={() => {
-                                                showToast(sheetUrl ? "Google Sheet integration active!" : "Sheet URL cleared.");
-                                                setIsSheetModalOpen(false);
-                                            }}
-                                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md transition"
-                                        >
-                                            Save &amp; Close Setup
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-
-                    {/* Modern Footer */}
-                    <footer className="mt-6 text-center text-[11px] text-slate-400 font-medium py-3 border-t border-slate-200/50">
-                        Calmette Hospital Radiology Department • Mobile Time-Motion Tracker
-                    </footer>
                 </div>
             );
         }
 
-        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
     </script>
 </body>
 </html>
