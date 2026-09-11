@@ -315,57 +315,86 @@
             const canvasRef = React.useRef(null);
             const [scanError, setScanError] = React.useState('');
             const [isScanning, setIsScanning] = React.useState(false);
+            const [manualCode, setManualCode] = React.useState('');
 
             React.useEffect(() => {
                 let stream = null;
                 let animId = null;
+                let isMounted = true;
 
                 if (isOpen) {
                     setScanError('');
                     setIsScanning(true);
-                    navigator.mediaDevices?.getUserMedia({ video: { facingMode: 'environment' } })
+                    setManualCode('');
+
+                    const constraints = {
+                        video: {
+                            facingMode: { ideal: 'environment' },
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        }
+                    };
+
+                    navigator.mediaDevices?.getUserMedia(constraints)
                         .then((s) => {
+                            if (!isMounted) {
+                                s.getTracks().forEach(t => t.stop());
+                                return;
+                            }
                             stream = s;
                             if (videoRef.current) {
                                 videoRef.current.srcObject = stream;
                                 videoRef.current.setAttribute('playsinline', true);
-                                videoRef.current.play();
-                                animId = requestAnimationFrame(tick);
+                                videoRef.current.play().then(() => {
+                                    if (isMounted) animId = requestAnimationFrame(tick);
+                                }).catch(err => {
+                                    console.error('Video play error:', err);
+                                    if (isMounted) setScanError('Unable to start video preview. Please use manual entry below.');
+                                });
                             }
                         })
                         .catch((err) => {
                             console.error('Camera access error:', err);
-                            setScanError('Camera permission denied or unavailable. Please enter code manually.');
-                            setIsScanning(false);
+                            if (isMounted) {
+                                setScanError('Camera permission denied or unavailable. Please enter code manually.');
+                                setIsScanning(false);
+                            }
                         });
                 }
 
                 function tick() {
+                    if (!isMounted) return;
                     if (videoRef.current && videoRef.current.readyState === videoRef.current.HAVE_ENOUGH_DATA) {
                         const video = videoRef.current;
                         const canvas = canvasRef.current;
                         if (canvas) {
-                            canvas.width = video.videoWidth;
-                            canvas.height = video.videoHeight;
-                            const ctx = canvas.getContext('2d');
-                            ctx.drawImage(video, 0, canvas.width, canvas.height);
-                            try {
-                                const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-                                const code = jsQR(imageData.data, imageData.width, imageData.height, {
-                                    inversionAttempts: 'dontInvert',
-                                });
-                                if (code && code.data) {
-                                    triggerHaptic(60);
-                                    onScanSuccess(code.data);
-                                    stopStream();
-                                    return;
+                            const width = video.videoWidth;
+                            const height = video.videoHeight;
+                            if (width > 0 && height > 0) {
+                                canvas.width = width;
+                                canvas.height = height;
+                                const ctx = canvas.getContext('2d', { willReadFrequently: true });
+                                ctx.drawImage(video, 0, 0, width, height);
+                                try {
+                                    const imageData = ctx.getImageData(0, 0, width, height);
+                                    const code = jsQR(imageData.data, imageData.width, imageData.height, {
+                                        inversionAttempts: 'attemptBoth',
+                                    });
+                                    if (code && code.data) {
+                                        triggerHaptic(60);
+                                        onScanSuccess(code.data.trim());
+                                        stopStream();
+                                        return;
+                                    }
+                                } catch (e) {
+                                    console.error('jsQR scanning error:', e);
                                 }
-                            } catch (e) {
-                                console.error(e);
                             }
                         }
                     }
-                    animId = requestAnimationFrame(tick);
+                    if (isMounted) {
+                        animId = requestAnimationFrame(tick);
+                    }
                 }
 
                 function stopStream() {
@@ -378,6 +407,7 @@
                 }
 
                 return () => {
+                    isMounted = false;
                     stopStream();
                 };
             }, [isOpen]);
@@ -390,39 +420,61 @@
                         <div className="flex items-center justify-between border-b pb-3">
                             <h3 className="font-extrabold text-sm text-slate-900 flex items-center space-x-2">
                                 <i className="fa-solid fa-qrcode text-brand-600"></i>
-                               <span>Scan Barcode / QR Code</span>
+                                <span>Scan Barcode / QR Code</span>
                             </h3>
                             <button onClick={onClose} className="text-slate-400 hover:text-slate-600 p-1">
                                 <i className="fa-solid fa-xmark text-lg"></i>
                             </button>
                         </div>
 
-                        <div className="relative rounded-2xl overflow-hidden bg-slate-900 aspect-square flex items-center justify-center border-2 border-brand-500/50 shadow-inner">
+                        <div className="relative rounded-2xl overflow-hidden bg-slate-900 aspect-video sm:aspect-square flex items-center justify-center border-2 border-brand-500/50 shadow-inner">
                             <video ref={videoRef} className="w-full h-full object-cover"></video>
                             <canvas ref={canvasRef} className="hidden"></canvas>
                             
                             {/* Scanner Targeting overlay box */}
-                            <div className="absolute inset-12 border-2 border-dashed border-sky-400/80 rounded-2xl pointer-events-none flex items-center justify-center">
+                            <div className="absolute inset-8 border-2 border-dashed border-sky-400/80 rounded-2xl pointer-events-none flex items-center justify-center">
                                 <div className="w-full h-0.5 bg-rose-500/80 animate-pulse"></div>
                             </div>
 
                             {scanError && (
-                                <div className="absolute inset-0 bg-slate-950/90 p-6 flex flex-col items-center justify-center text-center">
+                                <div className="absolute inset-0 bg-slate-950/95 p-6 flex flex-col items-center justify-center text-center">
                                     <i className="fa-solid fa-triangle-exclamation text-amber-400 text-2xl mb-2"></i>
                                     <p className="text-xs text-white font-medium">{scanError}</p>
                                 </div>
                             )}
                         </div>
 
-                        <p className="text-[11px] text-slate-500">
-                            Position patient wristband QR or accession barcode within the frame.
-                        </p>
+                        <div className="space-y-2">
+                            <p className="text-[11px] text-slate-500">
+                                Center QR code within viewfinder or enter accession ID directly below:
+                            </p>
+                            <div className="flex gap-2">
+                                <input
+                                    type="text"
+                                    value={manualCode}
+                                    onChange={(e) => setManualCode(e.target.value)}
+                                    placeholder="Enter accession code..."
+                                    className="flex-1 px-3 py-2 text-xs font-mono border rounded-xl bg-slate-50 focus:outline-none focus:ring-2 focus:ring-brand-500"
+                                />
+                                <button
+                                    onClick={() => {
+                                        if (manualCode.trim()) {
+                                            triggerHaptic(40);
+                                            onScanSuccess(manualCode.trim());
+                                        }
+                                    }}
+                                    className="px-4 py-2 bg-brand-600 text-white font-bold text-xs rounded-xl shadow-sm"
+                                >
+                                    Apply
+                                </button>
+                            </div>
+                        </div>
 
                         <button
                             onClick={onClose}
-                            className="w-full py-3 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition"
+                            className="w-full py-2.5 bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs rounded-xl transition"
                         >
-                            Cancel Scanner
+                            Close Scanner
                         </button>
                     </div>
                 </div>
