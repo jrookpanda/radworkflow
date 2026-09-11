@@ -1,0 +1,387 @@
+<!-- ... existing code ... -->
+        function App() {
+            const [view, setView] = React.useState('setup');
+            
+            // Station / Machine ID state (Persisted in localStorage)
+            const [stationId, setStationId] = React.useState(() => getOrCreateDeviceId());
+            const [isStationLocked, setIsStationLocked] = React.useState(true);
+
+            // Google Sheets Integration State
+            const [sheetUrl, setSheetUrl] = React.useState(() => {
+                try { return localStorage.getItem('radiology_sheet_url') || ''; } catch(e) { return ''; }
+            });
+            const [isSheetModalOpen, setIsSheetModalOpen] = React.useState(false);
+            const [isSyncing, setIsSyncing] = React.useState(false);
+            const [testStatus, setTestStatus] = React.useState(null); // 'testing', 'success', 'error'
+
+            const showToast = (msg) => {
+                setToastMessage(msg);
+                setTimeout(() => setToastMessage(null), 3500);
+            };
+
+            const sendRecordToGoogleSheet = async (record, isBatch = false) => {
+                if (!sheetUrl.trim()) return false;
+                try {
+                    await fetch(sheetUrl.trim(), {
+                        method: 'POST',
+                        mode: 'no-cors',
+                        headers: { 'Content-Type': 'text/plain' },
+                        body: JSON.stringify(record)
+                    });
+                    return true;
+                } catch(err) {
+                    console.error("Sheets push error:", err);
+                    return false;
+                }
+            };
+
+            const handleTestConnection = async () => {
+                if (!sheetUrl.trim()) {
+                    showToast("Please enter a Google Apps Script Web App URL first.");
+                    return;
+                }
+                setTestStatus('testing');
+                triggerHaptic(30);
+                try {
+                    // Send a ping test payload
+                    const dummyTest = {
+                        id: "TEST-PING-" + Date.now(),
+                        stationId: stationId || "TEST-ROOM",
+                        observerName: "Connection Test",
+                        patientId: "TEST-PATIENT",
+                        shift: "Test",
+                        modality: "System Test",
+                        hasContrast: false,
+                        patientType: "N/A",
+                        bodyPart: "Diagnostic Check",
+                        templateName: "Ping Verification",
+                        overallStartTime: new Date().toISOString(),
+                        overallEndTime: new Date().toISOString(),
+                        summaryMetrics: { totalDurationSec: 0, handsOnDurationSec: 0, postProcessingDurationSec: 0 },
+                        resources: { filmsPrinted: 0, filmSize: "N/A", techCount: 1, nurseCount: 0, bottleneckNotes: "System test ping" }
+                    };
+                    await sendRecordToGoogleSheet(dummyTest);
+                    setTestStatus('success');
+                    showToast("Test ping sent to Google Sheet!");
+                } catch(e) {
+                    setTestStatus('error');
+                    showToast("Failed to connect to Google Sheet URL.");
+                }
+            };
+
+            const handleSaveGoogleSheetUrl = (url) => {
+                const trimmed = url.trim();
+                setSheetUrl(trimmed);
+                setTestStatus(null);
+                try {
+                    localStorage.setItem('radiology_sheet_url', trimmed);
+                } catch(e) {}
+            };
+
+            const handleSyncAllToSheets = async () => {
+                if (!sheetUrl) {
+                    setIsSheetModalOpen(true);
+                    return;
+                }
+                if (history.length === 0) {
+                    showToast("No records available to sync.");
+                    return;
+                }
+                setIsSyncing(true);
+                triggerHaptic(40);
+
+                // Send history as batch payload
+                const success = await sendRecordToGoogleSheet(history, true);
+                setIsSyncing(false);
+                if (success) {
+                    showToast(`Synced ${history.length} observation(s) to Google Sheet!`);
+                } else {
+                    showToast("Error sending sync payload to Google Sheet.");
+                }
+            };
+
+            const handleSaveGoogleSheetUrl = (url) => {
+                const trimmed = url.trim();
+                setSheetUrl(trimmed);
+                try {
+                    localStorage.setItem('radiology_sheet_url', trimmed);
+                } catch(e) {}
+                showToast(trimmed ? "Google Sheet Endpoint Linked!" : "Sheet URL cleared.");
+            };
+
+            const handleSyncAllToSheets = async () => {
+                if (!sheetUrl) {
+                    setIsSheetModalOpen(true);
+                    return;
+                }
+                if (history.length === 0) {
+                    showToast("No records to sync.");
+                    return;
+                }
+                setIsSyncing(true);
+                triggerHaptic(40);
+
+                let successCount = 0;
+                for (const item of history) {
+                    const ok = await sendRecordToGoogleSheet(item, true);
+                    if (ok) successCount++;
+                }
+
+                setIsSyncing(false);
+                showToast(`Synced ${history.length} observation(s) to Google Sheets!`);
+            };
+
+            const getTemplateKey = (mod, contrastVal) => {
+<!-- ... existing code ... -->
+            const handleSaveResources = (e) => {
+                if (e) e.preventDefault();
+                triggerHaptic(50);
+                
+                let handsOnSec = 0;
+                let postSec = 0;
+
+                trackingSession.stepLogs.forEach(log => {
+                    if (log.stepType === 'hands_on') {
+                        handsOnSec += log.durationSeconds;
+                    } else {
+                        postSec += log.durationSeconds;
+                    }
+                });
+
+                const totalSec = handsOnSec + postSec;
+
+                const finalRecord = {
+                    ...trackingSession,
+                    summaryMetrics: {
+                        handsOnDurationSec: handsOnSec,
+                        postProcessingDurationSec: postSec,
+                        totalDurationSec: totalSec
+                    }
+                };
+
+                setHistory([finalRecord, ...history]);
+                setTrackingSession(finalRecord);
+                setView('summary');
+
+                // Auto-sync to Google Sheet if Webhook URL is configured
+                if (sheetUrl.trim()) {
+                    sendRecordToGoogleSheet(finalRecord);
+                    showToast("Observation saved & auto-synced to Google Sheet!");
+                } else {
+                    showToast("Observation saved locally!");
+                }
+            };
+
+            const handleStartNewPatient = () => {
+<!-- ... existing code ... -->
+                        {/* Fast View Pills */}
+                        <div className="flex items-center space-x-1.5 bg-slate-100/80 p-1.5 rounded-2xl border border-slate-200/60">
+                            <button 
+                                onClick={() => { triggerHaptic(20); setIsSheetModalOpen(true); }}
+                                className={`px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center space-x-1.5 ${
+                                    sheetUrl 
+                                        ? 'bg-emerald-50 text-emerald-800 border border-emerald-200/80' 
+                                        : 'bg-amber-50 text-amber-800 border border-amber-200/80 hover:bg-amber-100'
+                                }`}
+                                title="Configure Google Sheets Integration"
+                            >
+                                <i className={`fa-solid fa-file-excel ${sheetUrl ? 'text-emerald-600' : 'text-amber-600'}`}></i>
+                                <span className="hidden md:inline">{sheetUrl ? 'Sheets Active' : 'Link Sheets'}</span>
+                            </button>
+
+                            <button 
+                                onClick={() => { triggerHaptic(20); setView(trackingSession ? 'tracking' : 'setup'); }}
+                                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center space-x-2 ${
+                                    view === 'setup' || view === 'tracking' 
+                                        ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80' 
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                <i className="fa-solid fa-play text-brand-600 text-xs"></i>
+                                <span className="hidden sm:inline">Tracker</span>
+                            </button>
+                            <button 
+                                onClick={() => { triggerHaptic(20); setView('history'); }}
+                                className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all duration-200 flex items-center space-x-2 ${
+                                    view === 'history' 
+                                        ? 'bg-white text-slate-900 shadow-sm border border-slate-200/80' 
+                                        : 'text-slate-600 hover:text-slate-900'
+                                }`}
+                            >
+                                <i className="fa-solid fa-database text-slate-500 text-xs"></i>
+                                <span>Logs</span>
+                                {history.length > 0 && (
+                                    <span className="bg-brand-600 text-white text-[10px] px-1.5 py-0.2 rounded-full font-black">
+                                        {history.length}
+                                    </span>
+                                )}
+                            </button>
+                        </div>
+                    </header>
+
+                    {/* Toast Notification */}
+<!-- ... existing code ... -->
+                    {}
+                    {view === 'history' && (
+                        <div className="bg-white/90 backdrop-blur-md rounded-3xl border border-slate-200/80 p-5 sm:p-7 shadow-card mb-auto">
+                            <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-4 mb-5 gap-3">
+                                <div>
+                                    <h2 className="text-lg font-black text-slate-900">Recorded Observations</h2>
+                                    <p className="text-xs text-slate-500">{history.length} study sessions stored locally</p>
+                                </div>
+
+                                <div className="flex items-center space-x-2">
+                                    <button
+                                        onClick={handleSyncAllToSheets}
+                                        disabled={isSyncing || history.length === 0}
+                                        className="px-3.5 py-2.5 bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-700 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md flex items-center space-x-2 transition active:scale-95"
+                                    >
+                                        <i className={`fa-solid ${isSyncing ? 'fa-spinner fa-spin' : 'fa-cloud-arrow-up'}`}></i>
+                                        <span>{isSyncing ? 'Syncing...' : 'Sync to Sheet'}</span>
+                                    </button>
+
+                                    <button
+                                        onClick={handleExportCSV}
+                                        disabled={history.length === 0}
+                                        className="px-3.5 py-2.5 bg-slate-800 hover:bg-slate-700 active:bg-slate-900 disabled:opacity-50 text-white text-xs font-bold rounded-xl shadow-md flex items-center space-x-2 transition active:scale-95"
+                                    >
+                                        <i className="fa-solid fa-file-csv"></i>
+                                        <span>Export CSV</span>
+                                    </button>
+                                </div>
+                            </div>
+
+                            {history.length === 0 ? (
+<!-- ... existing code ... -->
+                    {/* Note Drawer Overlay */}
+                    {editingNoteStepIndex !== null && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-md rounded-3xl p-6 shadow-2xl border border-slate-200">
+                                <h3 className="text-sm font-black text-slate-900 mb-2">
+                                    Attach Delay / Workflow Note (Step {editingNoteStepIndex + 1})
+                                </h3>
+                                <textarea
+                                    rows="3"
+                                    value={stepNoteText}
+                                    onChange={(e) => setStepNoteText(e.target.value)}
+                                    placeholder="e.g. Patient positioning adjustment, IV re-cannulation required..."
+                                    className="w-full px-3.5 py-3 text-xs rounded-2xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-brand-500 mb-4 shadow-sm"
+                                ></textarea>
+                                <div className="flex items-center space-x-2">
+                                    <button
+                                        onClick={() => setEditingNoteStepIndex(null)}
+                                        className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs rounded-xl transition"
+                                    >
+                                        Cancel
+                                    </button>
+                                    <button
+                                        onClick={handleSaveStepNote}
+                                        className="flex-1 py-3 bg-brand-600 text-white font-bold text-xs rounded-xl shadow-md transition"
+                                    >
+                                        Save Note
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Google Sheets Setup Modal */}
+                    {isSheetModalOpen && (
+                        <div className="fixed inset-0 z-50 bg-slate-900/70 backdrop-blur-md flex items-center justify-center p-4">
+                            <div className="bg-white w-full max-w-xl rounded-3xl p-5 sm:p-7 shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+                                <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-4">
+                                    <div className="flex items-center space-x-2.5">
+                                        <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-700 flex items-center justify-center text-lg">
+                                            <i className="fa-solid fa-file-excel"></i>
+                                        </div>
+                                        <div>
+                                            <h3 className="text-base font-black text-slate-900">Google Sheets Live Sync Endpoint</h3>
+                                            <p className="text-xs text-slate-500 font-medium">Free zero-backend logging for research data collection</p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={() => setIsSheetModalOpen(false)}
+                                        className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-600 flex items-center justify-center text-xs"
+                                    >
+                                        <i className="fa-solid fa-xmark"></i>
+                                    </button>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {/* Webhook Endpoint Input */}
+                                    <div>
+                                        <label className="block text-xs font-bold text-slate-800 mb-1.5">
+                                            Google Apps Script Web App Execution URL
+                                        </label>
+                                        <div className="flex gap-2">
+                                            <input
+                                                type="url"
+                                                value={sheetUrl}
+                                                onChange={(e) => handleSaveGoogleSheetUrl(e.target.value)}
+                                                placeholder="https://script.google.com/macros/s/AKfycbx.../exec"
+                                                className="flex-1 px-3.5 py-3 text-xs font-mono rounded-xl border border-slate-300 focus:outline-none focus:ring-2 focus:ring-emerald-500 shadow-sm"
+                                            />
+                                            <button
+                                                type="button"
+                                                onClick={handleTestConnection}
+                                                disabled={!sheetUrl.trim() || testStatus === 'testing'}
+                                                className="px-4 py-3 bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs rounded-xl shadow transition flex items-center space-x-1.5 disabled:opacity-50"
+                                            >
+                                                <i className={`fa-solid ${testStatus === 'testing' ? 'fa-spinner fa-spin' : 'fa-vial'}`}></i>
+                                                <span>Test Ping</span>
+                                            </button>
+                                        </div>
+
+                                        {testStatus === 'success' && (
+                                            <p className="text-[11px] text-emerald-700 font-bold mt-1.5 flex items-center gap-1">
+                                                <i className="fa-solid fa-circle-check"></i> Connection active! Test row inserted into sheet.
+                                            </p>
+                                        )}
+                                        {testStatus === 'error' && (
+                                            <p className="text-[11px] text-red-600 font-bold mt-1.5 flex items-center gap-1">
+                                                <i className="fa-solid fa-triangle-exclamation"></i> Could not reach endpoint. Verify Apps Script deployment.
+                                            </p>
+                                        )}
+                                    </div>
+
+                                    {/* Quick Instructions */}
+                                    <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs text-slate-700 space-y-2">
+                                        <div className="font-extrabold text-slate-900 flex items-center gap-1.5">
+                                            <i className="fa-solid fa-rocket text-brand-600"></i>
+                                            <span>3-Step Quick Deployment Guide:</span>
+                                        </div>
+                                        <ol className="list-decimal list-inside space-y-1 text-slate-600 text-[11px] leading-relaxed">
+                                            <li>Open your Google Sheet &gt; Click <strong className="text-slate-900">Extensions &gt; Apps Script</strong>.</li>
+                                            <li>Paste the <strong className="text-slate-900">Code.gs</strong> snippet, click <strong className="text-slate-900">Deploy &gt; New deployment</strong>.</li>
+                                            <li>Set type to <strong className="text-slate-900">Web app</strong>, access to <strong className="text-emerald-700 font-bold">"Anyone"</strong>, click <strong className="text-slate-900">Deploy</strong> &amp; copy the URL!</li>
+                                        </ol>
+                                    </div>
+
+                                    <div className="pt-2 flex justify-end">
+                                        <button
+                                            onClick={() => {
+                                                showToast(sheetUrl ? "Google Sheet integration active!" : "Sheet URL cleared.");
+                                                setIsSheetModalOpen(false);
+                                            }}
+                                            className="w-full py-3 bg-emerald-600 hover:bg-emerald-500 text-white font-bold text-xs rounded-xl shadow-md transition"
+                                        >
+                                            Save &amp; Close Setup
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Modern Footer */}
+                    <footer className="mt-6 text-center text-[11px] text-slate-400 font-medium py-3 border-t border-slate-200/50">
+                        Calmette Hospital Radiology Department • Mobile Time-Motion Tracker
+                    </footer>
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
