@@ -44,7 +44,7 @@ export const SetupView: React.FC<SetupViewProps> = ({
   };
 
   return (
-    <div className="bg-white/95 backdrop-blur-md rounded-3xl p-4 sm:p-6 border border-slate-200/80 shadow-sm space-y-4 my-auto pb-24 sm:pb-6">
+    <div className="bg-white/95 backdrop-blur-md rounded-3xl p-4 sm:p-6 border border-slate-200/80 shadow-sm space-y-4 pb-24 sm:pb-6">
       <form onSubmit={handleSubmit} className="space-y-4">
 
         {/* Patient ID & QR / Barcode Scanner Panel */}

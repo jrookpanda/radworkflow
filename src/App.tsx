@@ -676,7 +676,7 @@ export function App() {
   };
 
   return (
-    <div className="max-w-md sm:max-w-xl mx-auto px-3.5 py-3 min-h-screen flex flex-col justify-between">
+    <div className="max-w-md sm:max-w-xl mx-auto px-3.5 py-3 min-h-screen flex flex-col">
       {/* Top Header Bar */}
       <header className="bg-white/90 backdrop-blur-md border border-slate-200/80 rounded-2xl p-2.5 shadow-sm mb-2.5 flex items-center justify-between">
         <div className="flex items-center space-x-2.5">
