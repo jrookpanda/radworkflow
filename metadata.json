@@ -1,0 +1,8 @@
+{
+  "name": "Radiology Time-Motion Study Tracker (CT & X-Ray)",
+  "description": "Workflow efficiency tracker for CT & X-Ray radiology procedures with QR scanning and Google Sheets synchronization.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
