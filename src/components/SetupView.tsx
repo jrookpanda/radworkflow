@@ -162,9 +162,6 @@ export const SetupView: React.FC<SetupViewProps> = ({
                 )}
               </div>
               <div className="font-black text-sm">{t.ctTitle}</div>
-              <div className={`text-[10px] font-semibold ${formData.modality === 'CT' ? 'text-teal-100' : 'text-slate-400'}`}>
-                {t.ctSub}
-              </div>
             </button>
 
             {/* X-Ray Toggle */}
@@ -199,9 +196,6 @@ export const SetupView: React.FC<SetupViewProps> = ({
                 )}
               </div>
               <div className="font-black text-sm">{t.xrayTitle}</div>
-              <div className={`text-[10px] font-semibold ${formData.modality === 'XRay' ? 'text-sky-100' : 'text-slate-400'}`}>
-                {t.xraySub}
-              </div>
             </button>
           </div>
         </div>
@@ -225,10 +219,7 @@ export const SetupView: React.FC<SetupViewProps> = ({
               }`}
             >
               <i className="fa-solid fa-ban text-sm"></i>
-              <div className="text-left">
-                <div>{t.plainTitle}</div>
-                <div className="text-[9px] font-medium opacity-80">{t.plainSub}</div>
-              </div>
+              <span>{t.plainTitle}</span>
             </button>
 
             <button
@@ -244,10 +235,7 @@ export const SetupView: React.FC<SetupViewProps> = ({
               }`}
             >
               <i className="fa-solid fa-syringe text-sm"></i>
-              <div className="text-left">
-                <div>{t.contrastTitle}</div>
-                <div className="text-[9px] font-medium opacity-80">{t.contrastSub}</div>
-              </div>
+              <span>{t.contrastTitle}</span>
             </button>
           </div>
         </div>
@@ -495,7 +483,7 @@ export const SetupView: React.FC<SetupViewProps> = ({
                     triggerHaptic(20);
                     setFormData({ ...formData, patientType: pt.id });
                   }}
-                  className={`py-2 px-1 rounded-xl text-center border transition cursor-pointer active:scale-95 ${
+                  className={`py-2.5 px-2 rounded-xl text-center border transition cursor-pointer active:scale-95 flex items-center justify-center ${
                     isSelected
                       ? isER
                         ? 'bg-rose-600 text-white border-rose-600 shadow-md ring-2 ring-rose-400/40'
@@ -505,8 +493,7 @@ export const SetupView: React.FC<SetupViewProps> = ({
                       : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
                   }`}
                 >
-                  <div className="text-xs font-black truncate">{pt.label}</div>
-                  <div className="text-[9px] font-semibold opacity-90 truncate">{label}</div>
+                  <div className="text-xs font-bold truncate">{label}</div>
                 </button>
               );
             })}

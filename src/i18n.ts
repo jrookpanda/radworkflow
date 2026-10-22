@@ -36,7 +36,7 @@ export const TRANSLATIONS = {
     contrastSectionTitle: '២. ការប្រើប្រាស់ថ្នាំព៌ណ',
     plainTitle: 'គ្មានថ្នាំព៌ណ',
     plainSub: 'Plain / Routine',
-    contrastTitle: 'ថ្នាំព៌ណContrast',
+    contrastTitle: 'មានប្រើថ្នាំព៌ណ',
     contrastSub: 'IV Contrast Enhanced',
 
     // Setup: 3. Anatomy Region
